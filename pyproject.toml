@@ -1,0 +1,12 @@
+[project]
+name = "hotel-expense-tracker"
+version = "0.1.0"
+description = "Hotel Santika Depok Expense Separator & Spending Tracker"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1.2",
+    "pandas>=2.2.0",
+    "plotly>=5.20.0",
+    "streamlit>=1.35.0",
+]
