@@ -5,6 +5,7 @@ Interactive Expense Separator & Spending Tracker.
 
 import os
 import io
+import numpy as np
 import streamlit as st
 import pandas as pd
 import plotly.express as px
