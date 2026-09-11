@@ -202,7 +202,30 @@ def reconcile_monthly_expenses(
         .reset_index(drop=True)
     )
 
-    # 4. Total metrics
+    # 4. Item-level summary with total quantities, unit costs, and category share
+    enriched_df_copy = enriched_df.copy()
+    cat_totals = enriched_df_copy.groupby('Category')['Amount'].transform('sum')
+    enriched_df_copy['Cat_Total'] = cat_totals
+
+    item_summary_df = enriched_df_copy.groupby(['Category', 'Item_Name']).agg(
+        Total_Qty=('Qty', 'sum'),
+        Unit=('Unit', lambda u: next((x for x in u if x and str(x).strip()), '')),
+        Avg_Unit_Price=('Unit_Price', 'mean'),
+        Total_Amount=('Amount', 'sum'),
+        Order_Count=('Amount', 'count'),
+        First_Date=('Date', 'min'),
+        Last_Date=('Date', 'max'),
+        Cat_Total=('Cat_Total', 'first')
+    ).reset_index()
+
+    item_summary_df['Pct_Of_Category'] = (
+        item_summary_df['Total_Amount'] / item_summary_df['Cat_Total'] * 100.0
+    ).round(2)
+    item_summary_df = item_summary_df.sort_values(
+        by=['Category', 'Total_Amount'], ascending=[True, False]
+    ).reset_index(drop=True)
+
+    # 5. Total metrics
     total_spent = enriched_df['Amount'].sum()
     total_budget = cat_summary_df['Budget'].sum() if not cat_summary_df.empty else 0.0
     total_var = total_spent - total_budget
@@ -212,12 +235,14 @@ def reconcile_monthly_expenses(
         'transactions': enriched_df,
         'category_summary': cat_summary_df,
         'top_cost_drivers': top_items_df,
+        'item_summary': item_summary_df,
         'metrics': {
             'total_spent': total_spent,
             'total_budget': total_budget,
             'variance_idr': total_var,
             'variance_pct': total_var_pct,
             'transaction_count': len(enriched_rows),
-            'category_count': len(cat_summary_rows)
+            'category_count': len(cat_summary_rows),
+            'unique_items_count': len(item_summary_df)
         }
     }

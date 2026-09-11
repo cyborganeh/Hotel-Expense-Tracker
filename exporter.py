@@ -222,7 +222,81 @@ def create_separated_excel(
             c_cell.border = thin_border
 
     # ==========================================
-    # HELPER: Function to create category sheets
+    # SHEET 3: Item Totals & Quantities (Aggregated by Item)
+    # ==========================================
+    item_df = reconciled_data.get('item_summary', pd.DataFrame())
+    if not item_df.empty:
+        ws_items = wb.create_sheet(title="Item Totals & Quantities")
+        ws_items.views.sheetView[0].showGridLines = True
+
+        ws_items["A1"] = "Hotel Santika Depok - Item Consumption & Repeated Orders Summary"
+        ws_items["A1"].font = title_font
+        ws_items["A2"] = f"Month: {month_name} | Aggregated Total Quantities and Spending per Item"
+        ws_items["A2"].font = subtitle_font
+
+        headers_items = [
+            "Category", "Item / Service Name", "Total Quantity", "Unit",
+            "Avg Unit Price (IDR)", "Total Spend (IDR)", "% of Category", "Orders Count", "Date Range"
+        ]
+        s_row = 4
+        for c_idx, h in enumerate(headers_items, 1):
+            cell = ws_items.cell(s_row, c_idx, h)
+            cell.font = white_bold
+            cell.fill = navy_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        curr_cat = None
+        r_idx = s_row + 1
+        for _, row in item_df.iterrows():
+            fill = zebra_fill if r_idx % 2 == 0 else PatternFill(fill_type=None)
+            
+            ws_items.cell(r_idx, 1, row['Category']).font = bold_font if row['Category'] != curr_cat else regular_font
+            curr_cat = row['Category']
+            ws_items.cell(r_idx, 2, row['Item_Name']).font = bold_font
+            
+            c_q = ws_items.cell(r_idx, 3, row['Total_Qty'])
+            c_q.font = bold_font
+            c_q.alignment = Alignment(horizontal="right")
+            c_q.number_format = "#,##0"
+
+            ws_items.cell(r_idx, 4, row['Unit']).font = regular_font
+            
+            c_up = ws_items.cell(r_idx, 5, row['Avg_Unit_Price'])
+            c_up.font = regular_font
+            c_up.number_format = num_format_currency
+
+            c_amt = ws_items.cell(r_idx, 6, row['Total_Amount'])
+            c_amt.font = bold_font
+            c_amt.number_format = num_format_currency
+
+            c_pct = ws_items.cell(r_idx, 7, row['Pct_Of_Category'] / 100.0)
+            c_pct.font = regular_font
+            c_pct.number_format = num_format_pct
+
+            c_cnt = ws_items.cell(r_idx, 8, row['Order_Count'])
+            c_cnt.font = regular_font
+            c_cnt.alignment = Alignment(horizontal="center")
+
+            date_range_str = f"{row['First_Date']} ~ {row['Last_Date']}" if row['First_Date'] != row['Last_Date'] else str(row['First_Date'])
+            ws_items.cell(r_idx, 9, date_range_str).font = regular_font
+
+            for col_i in range(1, 10):
+                c_cell = ws_items.cell(r_idx, col_i)
+                if fill.fill_type:
+                    c_cell.fill = fill
+                c_cell.border = thin_border
+
+            r_idx += 1
+
+        # Grand Total row
+        ws_items.cell(r_idx, 1, "GRAND TOTAL").font = bold_font
+        ws_items.cell(r_idx, 6, f"=SUM(F{s_row+1}:F{r_idx-1})").font = bold_font
+        ws_items.cell(r_idx, 6).number_format = num_format_currency
+        for col_i in range(1, 10):
+            ws_items.cell(r_idx, col_i).border = total_border
+
+    # ==========================================
+    # HELPER: Function to create category sheets with Item Summary + Transactions
     # ==========================================
     def add_category_sheet(sheet_title: str, category_filters: list):
         filtered_df = trx_df[trx_df['Category'].isin(category_filters)].copy()
@@ -233,20 +307,81 @@ def create_separated_excel(
         ws.views.sheetView[0].showGridLines = True
 
         # Sheet header
-        ws["A1"] = f"{sheet_title} - Itemized Spending Breakdown"
+        ws["A1"] = f"{sheet_title} - Spending Breakdown & Item Totals"
         ws["A1"].font = title_font
         ws["A2"] = f"Month: {month_name} | Total Spent: Rp {filtered_df['Amount'].sum():,.0f} across {len(filtered_df)} transactions"
         ws["A2"].font = subtitle_font
+
+        # 1. Item Totals Sub-Table for this category
+        cat_items = item_df[item_df['Category'].isin(category_filters)].copy() if not item_df.empty else pd.DataFrame()
+        curr_row = 4
+        
+        if not cat_items.empty and len(cat_items) > 1:
+            ws.cell(curr_row, 1, "ITEM TOTALS SUMMARY (Total Quantities & Costs)").font = bold_font
+            curr_row += 1
+            
+            headers_sub = ["Item Name", "Category", "Total Quantity", "Unit", "Avg Unit Price (IDR)", "Total Spend (IDR)", "% of Category", "Orders Count"]
+            for c_idx, h in enumerate(headers_sub, 1):
+                cell = ws.cell(curr_row, c_idx, h)
+                cell.font = white_bold
+                cell.fill = blue_header_fill
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            
+            curr_row += 1
+            start_sub_row = curr_row
+            for _, i_row in cat_items.iterrows():
+                ws.cell(curr_row, 1, i_row['Item_Name']).font = bold_font
+                ws.cell(curr_row, 2, i_row['Category']).font = regular_font
+                
+                c_q = ws.cell(curr_row, 3, i_row['Total_Qty'])
+                c_q.font = bold_font
+                c_q.alignment = Alignment(horizontal="right")
+                c_q.number_format = "#,##0"
+
+                ws.cell(curr_row, 4, i_row['Unit']).font = regular_font
+                
+                c_up = ws.cell(curr_row, 5, i_row['Avg_Unit_Price'])
+                c_up.font = regular_font
+                c_up.number_format = num_format_currency
+
+                c_amt = ws.cell(curr_row, 6, i_row['Total_Amount'])
+                c_amt.font = bold_font
+                c_amt.number_format = num_format_currency
+
+                c_pct = ws.cell(curr_row, 7, i_row['Pct_Of_Category'] / 100.0)
+                c_pct.font = regular_font
+                c_pct.number_format = num_format_pct
+
+                c_cnt = ws.cell(curr_row, 8, i_row['Order_Count'])
+                c_cnt.font = regular_font
+                c_cnt.alignment = Alignment(horizontal="center")
+
+                for col_i in range(1, 9):
+                    ws.cell(curr_row, col_i).border = thin_border
+                curr_row += 1
+
+            # Subtotal of Item Summary
+            ws.cell(curr_row, 1, "ITEMS SUB-TOTAL").font = bold_font
+            ws.cell(curr_row, 6, f"=SUM(F{start_sub_row}:F{curr_row-1})").font = bold_font
+            ws.cell(curr_row, 6).number_format = num_format_currency
+            for col_i in range(1, 9):
+                ws.cell(curr_row, col_i).border = total_border
+
+            curr_row += 2  # spacing before transaction log
+
+        # 2. Individual Transaction Log
+        ws.cell(curr_row, 1, "INDIVIDUAL TRANSACTIONS (Order / Issuing Log)").font = bold_font
+        curr_row += 1
 
         headers = [
             "Date", "Category", "Item Name", "Vendor / Source",
             "Qty", "Unit", "Unit Price", "Total Amount (IDR)", "Voucher / Ref"
         ]
-        s_row = 4
+        s_row = curr_row
         for c_idx, h in enumerate(headers, 1):
             cell = ws.cell(s_row, c_idx, h)
             cell.font = white_bold
-            cell.fill = blue_header_fill
+            cell.fill = dark_slate_fill
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
         for r_idx, (_, row) in enumerate(filtered_df.iterrows(), s_row + 1):
@@ -272,7 +407,7 @@ def create_separated_excel(
 
         # Category Total
         end_row = s_row + len(filtered_df) + 1
-        ws.cell(end_row, 1, "CATEGORY TOTAL").font = bold_font
+        ws.cell(end_row, 1, "TRANSACTION TOTAL").font = bold_font
         ws.cell(end_row, 8, f"=SUM(H{s_row+1}:H{end_row-1})").font = bold_font
         ws.cell(end_row, 8).number_format = num_format_currency
         for col_i in range(1, 10):

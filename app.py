@@ -171,6 +171,7 @@ if reconciled_data:
     cat_df = reconciled_data['category_summary']
     trx_df = reconciled_data['transactions']
     top_items = reconciled_data['top_cost_drivers']
+    item_df = reconciled_data.get('item_summary', pd.DataFrame())
 
     # Pre-generate Excel export buffer for sidebar one-click download
     excel_bytes = exporter.create_separated_excel(reconciled_data, selected_month_name)
@@ -207,8 +208,9 @@ if reconciled_data:
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Tabs
-    tab_dash, tab_drill, tab_bgt, tab_mom, tab_export = st.tabs([
+    tab_dash, tab_items, tab_drill, tab_bgt, tab_mom, tab_export = st.tabs([
         "📊 Executive Dashboard",
+        "📦 Item Totals & Quantities",
         "🔍 Transaction Drilldown",
         "⚖️ Budget vs Actual Variance",
         "📈 Month-over-Month Comparison",
@@ -279,7 +281,167 @@ if reconciled_data:
         st.plotly_chart(fig_cost, use_container_width=True)
 
     # ==========================================
-    # TAB 2: TRANSACTION DRILLDOWN
+    # TAB: ITEM CONSUMPTION & REPEATED ORDERS
+    # ==========================================
+    with tab_items:
+        st.subheader("📦 Item Consumption & Repeated Orders Summary")
+        st.markdown(
+            "Track monthly cumulative quantities, average unit prices, and total spend per item "
+            "across recurring orders (e.g. **Cleo 330ml mineral water**, **Toilet Tissue**, **Slippers**, **Soap**, **Garbage Bags**)."
+        )
+
+        # Filters
+        c_filter_col1, c_filter_col2 = st.columns([2, 3])
+        
+        available_cats = sorted(item_df['Category'].unique().tolist()) if not item_df.empty else []
+        cat_choices = ["All Supplies Categories", "All Categories"] + available_cats
+        seen = set()
+        cat_choices = [x for x in cat_choices if not (x in seen or seen.add(x))]
+
+        with c_filter_col1:
+            sel_item_cat = st.selectbox("Select Expense Category", cat_choices)
+        with c_filter_col2:
+            item_search = st.text_input("🔍 Search Item Name (e.g. Cleo, Tissue, Slipper, Soap)", "")
+
+        filtered_items = item_df.copy() if not item_df.empty else pd.DataFrame()
+        if not filtered_items.empty:
+            if sel_item_cat == "All Supplies Categories":
+                filtered_items = filtered_items[filtered_items['Category'].isin([
+                    'Guest Supplies', 'Paper Suplies', 'Cleaning Supplies', 'Printing & Stationery,Photo Copy, Postage & Stamp'
+                ])]
+            elif sel_item_cat != "All Categories":
+                filtered_items = filtered_items[filtered_items['Category'] == sel_item_cat]
+
+            if item_search:
+                filtered_items = filtered_items[filtered_items['Item_Name'].str.lower().str.contains(item_search.lower(), na=False)]
+
+        if not filtered_items.empty:
+            # Summary KPIs for selected items
+            total_items_spend = filtered_items['Total_Amount'].sum()
+            total_items_qty = filtered_items['Total_Qty'].sum()
+            total_orders_count = filtered_items['Order_Count'].sum()
+            unique_items_cnt = len(filtered_items)
+
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            with kpi1:
+                st.metric("Total Spend", format_idr(total_items_spend))
+            with kpi2:
+                st.metric("Total Units / Quantities", f"{total_items_qty:,.0f} units")
+            with kpi3:
+                st.metric("Total Repeated Orders", f"{total_orders_count} deliveries")
+            with kpi4:
+                st.metric("Unique Items Tracked", f"{unique_items_cnt} items")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # Item Summary Table
+            st.markdown("#### Item Totals Table (Quantities & Total Cost)")
+            display_item_df = filtered_items[[
+                'Category', 'Item_Name', 'Total_Qty', 'Unit',
+                'Avg_Unit_Price', 'Total_Amount', 'Pct_Of_Category', 'Order_Count', 'First_Date', 'Last_Date'
+            ]].copy()
+
+            display_item_df['Total_Quantity'] = display_item_df.apply(
+                lambda r: f"{r['Total_Qty']:,.0f} {r['Unit']}".strip(), axis=1
+            )
+            display_item_df['Avg_Unit_Price'] = display_item_df['Avg_Unit_Price'].apply(format_idr)
+            display_item_df['Total_Amount'] = display_item_df['Total_Amount'].apply(format_idr)
+            display_item_df['Pct_Of_Category'] = display_item_df['Pct_Of_Category'].apply(format_pct)
+            display_item_df['Delivery_Period'] = display_item_df.apply(
+                lambda r: f"{r['First_Date']} ~ {r['Last_Date']}" if r['First_Date'] != r['Last_Date'] else str(r['First_Date']),
+                axis=1
+            )
+            
+            table_view = display_item_df[[
+                'Category', 'Item_Name', 'Total_Quantity', 'Avg_Unit_Price',
+                'Total_Amount', 'Pct_Of_Category', 'Order_Count', 'Delivery_Period'
+            ]]
+
+            st.dataframe(
+                table_view,
+                use_container_width=True,
+                height=380,
+                column_config={
+                    "Category": st.column_config.TextColumn("Category", width="medium"),
+                    "Item_Name": st.column_config.TextColumn("Item / Product Name", width="large"),
+                    "Total_Quantity": st.column_config.TextColumn("Total Quantity", width="medium"),
+                    "Avg_Unit_Price": st.column_config.TextColumn("Avg Unit Price", width="small"),
+                    "Total_Amount": st.column_config.TextColumn("Total Spend (IDR)", width="medium"),
+                    "Pct_Of_Category": st.column_config.TextColumn("% of Category", width="small"),
+                    "Order_Count": st.column_config.NumberColumn("Orders", width="small"),
+                    "Delivery_Period": st.column_config.TextColumn("Delivery Period", width="medium"),
+                }
+            )
+
+            st.divider()
+
+            # Item Inspector: Deep dive into individual deliveries
+            st.markdown("#### 🔬 Item Inspector: Delivery & Order History")
+            item_options = filtered_items['Item_Name'].unique().tolist()
+            if item_options:
+                default_idx = 0
+                for idx, name in enumerate(item_options):
+                    if "cleo" in name.lower():
+                        default_idx = idx
+                        break
+
+                selected_item_name = st.selectbox(
+                    "Select an item to view its complete delivery timeline and voucher log:",
+                    item_options,
+                    index=default_idx
+                )
+
+                item_trxs = trx_df[trx_df['Item_Name'] == selected_item_name].sort_values(by='Date')
+                
+                if not item_trxs.empty:
+                    item_tot_qty = item_trxs['Qty'].sum()
+                    item_unit = item_trxs['Unit'].iloc[0] or 'units'
+                    item_tot_cost = item_trxs['Amount'].sum()
+                    item_avg_cost = item_trxs['Unit_Price'].mean()
+
+                    stat1, stat2, stat3, stat4 = st.columns(4)
+                    with stat1:
+                        st.metric(f"Total {selected_item_name}", f"{item_tot_qty:,.0f} {item_unit}")
+                    with stat2:
+                        st.metric("Total Month Spend", format_idr(item_tot_cost))
+                    with stat3:
+                        st.metric("Avg Unit Price", format_idr(item_avg_cost))
+                    with stat4:
+                        st.metric("Total Deliveries / Vouchers", f"{len(item_trxs)} times")
+
+                    # Timeline Chart of Deliveries
+                    fig_timeline = px.bar(
+                        item_trxs,
+                        x='Date',
+                        y='Qty',
+                        hover_data=['Amount', 'Voucher_Ref', 'Unit_Price'],
+                        title=f"Delivery Timeline for {selected_item_name} ({item_unit})",
+                        labels={'Qty': f"Quantity Delivered ({item_unit})", 'Date': "Order / Issuing Date"},
+                        color_discrete_sequence=['#2563EB']
+                    )
+                    fig_timeline.update_layout(height=280, margin=dict(t=35, b=20, l=20, r=20))
+                    st.plotly_chart(fig_timeline, use_container_width=True)
+
+                    # Detailed Voucher Table
+                    st.markdown(f"**Individual Order Vouchers for {selected_item_name}:**")
+                    voucher_view = item_trxs[['Date', 'Voucher_Ref', 'Qty', 'Unit', 'Unit_Price', 'Amount', 'JRNL', 'Raw_Description']].copy()
+                    voucher_view['Unit_Price'] = voucher_view['Unit_Price'].apply(format_idr)
+                    voucher_view['Amount'] = voucher_view['Amount'].apply(format_idr)
+                    st.dataframe(voucher_view, use_container_width=True)
+
+            # Download Item Summary CSV
+            item_csv = filtered_items.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label=f"📥 Download Item Totals Summary (CSV)",
+                data=item_csv,
+                file_name=f"Item_Totals_{sel_item_cat.replace(' ', '_')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No items match the selected criteria.")
+
+    # ==========================================
+    # TAB 3: TRANSACTION DRILLDOWN
     # ==========================================
     with tab_drill:
         st.subheader("Detailed Spending Explorer")
