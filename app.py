@@ -99,7 +99,7 @@ st.sidebar.divider()
 
 data_source = st.sidebar.radio(
     "Select Data Source",
-    ["Select Month Folder", "Upload Custom Excel Files"],
+    ["Select Month Folder", "Upload Custom Excel Files", "Upload Multiple Months"],
     index=0 if has_local_folder else 1
 )
 
@@ -127,7 +127,7 @@ if data_source == "Select Month Folder":
     else:
         st.sidebar.error(f"Directory not found: {month_dir}")
 
-else:
+elif data_source == "Upload Custom Excel Files":
     st.sidebar.markdown("**Upload Monthly Excel Files:**")
     dtb_file = st.sidebar.file_uploader("1. Detail Trial Balance (DTB)", type=["xlsx"])
     is_file = st.sidebar.file_uploader("2. Income Statement Dept (MTD)", type=["xlsx"])
@@ -166,6 +166,57 @@ else:
                 if cons_path: os.unlink(cons_path)
             except Exception:
                 pass
+
+elif data_source == "Upload Multiple Months":
+    # Expect a zip file containing subfolders, each subfolder representing a month with the standard Excel files.
+    zip_file = st.sidebar.file_uploader("Upload ZIP of month folders", type=["zip"])
+    if zip_file:
+        import zipfile, tempfile, shutil
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Extract zip contents
+            with zipfile.ZipFile(zip_file) as z:
+                z.extractall(tmpdir)
+            # Identify month directories (folders directly under temp dir)
+            month_dirs = [os.path.join(tmpdir, d) for d in os.listdir(tmpdir) if os.path.isdir(os.path.join(tmpdir, d))]
+            month_data = {}
+            for month_dir in month_dirs:
+                month_label = os.path.basename(month_dir)
+                files = parser.find_month_files(month_dir)
+                if not files['dtb']:
+                    st.warning(f"DTB not found in {month_label}, skipping.")
+                    continue
+                with st.spinner(f"Processing {month_label}..."):
+                    dtb_df = parser.parse_detail_trial_balance(files['dtb'])
+                    is_df = parser.parse_income_statement(files['is_mtd']) if files['is_mtd'] else pd.DataFrame()
+                    cons_df = parser.parse_consumption_report(files['consumption']) if files['consumption'] else pd.DataFrame()
+                    month_data[month_label] = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+        if month_data:
+            # Combine metrics
+            combined_metrics = {
+                'total_spent': sum(d['metrics']['total_spent'] for d in month_data.values()),
+                'total_budget': sum(d['metrics']['total_budget'] for d in month_data.values()),
+                'transaction_count': sum(d['metrics']['transaction_count'] for d in month_data.values()),
+                'variance_idr': sum(d['metrics']['variance_idr'] for d in month_data.values()),
+                'variance_pct': None,  # will compute below
+                'budget_utilization_pct': None,
+            }
+            # Compute derived percentages safely
+            if combined_metrics['total_budget'] > 0:
+                combined_metrics['variance_pct'] = (combined_metrics['variance_idr'] / combined_metrics['total_budget']) * 100.0
+                combined_metrics['budget_utilization_pct'] = (combined_metrics['total_spent'] / combined_metrics['total_budget']) * 100.0
+            # Concatenate DataFrames
+            combined_cat = pd.concat([d['category_summary'] for d in month_data.values()], ignore_index=True)
+            combined_trx = pd.concat([d['transactions'] for d in month_data.values()], ignore_index=True)
+            combined_top = pd.concat([d['top_cost_drivers'] for d in month_data.values()], ignore_index=True)
+            combined_item = pd.concat([d.get('item_summary', pd.DataFrame()) for d in month_data.values()], ignore_index=True)
+            reconciled_data = {
+                'metrics': combined_metrics,
+                'category_summary': combined_cat,
+                'transactions': combined_trx,
+                'top_cost_drivers': combined_top,
+                'item_summary': combined_item,
+            }
+            selected_month_name = ", ".join(month_data.keys())
 
 
 if reconciled_data:
