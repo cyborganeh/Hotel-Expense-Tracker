@@ -84,11 +84,12 @@ def format_pct(val):
 
 
 # Base directories for standard data
-BASE_REVIEW_DIR = "/home/rzl/Documents/Business Review"
+BASE_REVIEW_DIR = os.environ.get("HOTEL_DATA_DIR", "/home/rzl/Documents/Business Review")
 MONTH_FOLDERS = {
     "August 2026 (Agustus)": os.path.join(BASE_REVIEW_DIR, "8.AGUSTUS"),
     "July 2026 (Juli)": os.path.join(BASE_REVIEW_DIR, "7.JULY"),
 }
+has_local_folder = os.path.exists(BASE_REVIEW_DIR)
 
 # Sidebar navigation & data selection
 st.sidebar.image("https://img.icons8.com/color/96/hotel-star.png", width=64)
@@ -98,7 +99,8 @@ st.sidebar.divider()
 
 data_source = st.sidebar.radio(
     "Select Data Source",
-    ["Select Month Folder", "Upload Custom Excel Files"]
+    ["Select Month Folder", "Upload Custom Excel Files"],
+    index=0 if has_local_folder else 1
 )
 
 reconciled_data = None
