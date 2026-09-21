@@ -17,6 +17,11 @@ import parser
 import matcher
 import exporter
 import sr_parser
+import importlib
+importlib.reload(parser)
+importlib.reload(matcher)
+importlib.reload(exporter)
+importlib.reload(sr_parser)
 
 # Configure Streamlit page
 st.set_page_config(
