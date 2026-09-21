@@ -443,3 +443,351 @@ def create_separated_excel(
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def create_sr_separated_excel(
+    sr_df: pd.DataFrame,
+    report_title: str = "Stock Request Separated Report",
+    output_path: Optional[str] = None
+) -> bytes:
+    """
+    Builds a multi-tab separated Excel workbook for Stock Requests:
+      1. SR Executive Summary
+      2. Guest Supplies (Item Summary + Issuing Log)
+      3. Cleaning Supplies (Item Summary + Issuing Log)
+      4. Paper Supplies (Item Summary + Issuing Log)
+      5. Print & Stationery (Item Summary + Issuing Log)
+      6. All Stock Requests Log
+    """
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # Remove default sheet
+
+    # Styles
+    navy_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    dark_slate_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+    blue_header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    light_blue_fill = PatternFill(start_color="EFF6FF", end_color="EFF6FF", fill_type="solid")
+    zebra_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+
+    white_bold = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    title_font = Font(name="Calibri", size=16, bold=True, color="1E3A8A")
+    subtitle_font = Font(name="Calibri", size=11, italic=True, color="64748B")
+    bold_font = Font(name="Calibri", size=11, bold=True, color="0F172A")
+    regular_font = Font(name="Calibri", size=10, color="0F172A")
+
+    thin_border = Border(
+        left=Side(style='thin', color='E2E8F0'),
+        right=Side(style='thin', color='E2E8F0'),
+        top=Side(style='thin', color='E2E8F0'),
+        bottom=Side(style='thin', color='E2E8F0')
+    )
+    total_top_border = Side(style='thin', color='0F172A')
+    total_bottom_border = Side(style='double', color='0F172A')
+    total_border = Border(top=total_top_border, bottom=total_bottom_border)
+
+    num_format_currency = "#,##0"
+    num_format_pct = "0.0%"
+
+    total_amount = sr_df['Total'].sum() if not sr_df.empty else 0.0
+    total_qty = sr_df['Qty'].sum() if not sr_df.empty else 0.0
+    total_items = len(sr_df) if not sr_df.empty else 0
+    unique_srs = sr_df['SR_Number'].nunique() if not sr_df.empty else 0
+
+    # ==========================================
+    # SHEET 1: SR Executive Summary
+    # ==========================================
+    ws_sum = wb.create_sheet(title="SR Summary")
+    ws_sum.views.sheetView[0].showGridLines = True
+
+    ws_sum["A1"] = f"Hotel Santika Depok - Stock Request (SR) Separator"
+    ws_sum["A1"].font = title_font
+    ws_sum["A2"] = f"{report_title} | Gudang Central Issuing to Housekeeping"
+    ws_sum["A2"].font = subtitle_font
+
+    # KPI Summary Cards
+    kpis = [
+        ("TOTAL SPEND", total_amount, "IDR", 1),
+        ("TOTAL QUANTITY", total_qty, "QTY", 3),
+        ("LINE ITEMS", total_items, "COUNT", 5),
+        ("SR ORDERS", unique_srs, "COUNT", 7),
+    ]
+
+    for label, val, val_type, col in kpis:
+        col_letter = get_column_letter(col)
+        next_col_letter = get_column_letter(col + 1)
+        ws_sum.merge_cells(f"{col_letter}4:{next_col_letter}4")
+        ws_sum.merge_cells(f"{col_letter}5:{next_col_letter}5")
+
+        c_lbl = ws_sum[f"{col_letter}4"]
+        c_lbl.value = label
+        c_lbl.font = Font(name="Calibri", size=9, bold=True, color="475569")
+        c_lbl.alignment = Alignment(horizontal="center", vertical="center")
+        c_lbl.fill = light_blue_fill
+
+        c_val = ws_sum[f"{col_letter}5"]
+        c_val.value = val
+        c_val.font = Font(name="Calibri", size=14, bold=True, color="1E3A8A")
+        c_val.alignment = Alignment(horizontal="center", vertical="center")
+        c_val.fill = light_blue_fill
+        c_val.number_format = num_format_currency if val_type in ("IDR", "QTY") else "#,##0"
+
+    # Category Summary Table
+    ws_sum.cell(7, 1, "SEPARATED SPENDING BY CATEGORY").font = bold_font
+
+    headers_cat = ["Category", "Unique Items", "Total Quantity", "Total Amount (IDR)", "% of Total Spend", "Issuing Count"]
+    for c_idx, h in enumerate(headers_cat, 1):
+        cell = ws_sum.cell(8, c_idx, h)
+        cell.font = white_bold
+        cell.fill = dark_slate_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    cat_order = ['Guest Supplies', 'Cleaning Supplies', 'Paper Supplies', 'Print & Stationery']
+    curr_r = 9
+    for cat in cat_order:
+        cat_data = sr_df[sr_df['Category'] == cat] if not sr_df.empty else pd.DataFrame()
+        c_qty = cat_data['Qty'].sum() if not cat_data.empty else 0.0
+        c_amt = cat_data['Total'].sum() if not cat_data.empty else 0.0
+        c_items = cat_data['Item_Name'].nunique() if not cat_data.empty else 0
+        c_count = len(cat_data) if not cat_data.empty else 0
+        c_pct = (c_amt / total_amount) if total_amount > 0 else 0.0
+
+        ws_sum.cell(curr_r, 1, cat).font = bold_font
+        ws_sum.cell(curr_r, 2, c_items).font = regular_font
+        ws_sum.cell(curr_r, 2).alignment = Alignment(horizontal="center")
+
+        ws_sum.cell(curr_r, 3, c_qty).font = regular_font
+        ws_sum.cell(curr_r, 3).number_format = "#,##0"
+
+        ws_sum.cell(curr_r, 4, c_amt).font = bold_font
+        ws_sum.cell(curr_r, 4).number_format = num_format_currency
+
+        ws_sum.cell(curr_r, 5, c_pct).font = regular_font
+        ws_sum.cell(curr_r, 5).number_format = num_format_pct
+
+        ws_sum.cell(curr_r, 6, c_count).font = regular_font
+        ws_sum.cell(curr_r, 6).alignment = Alignment(horizontal="center")
+
+        for col_i in range(1, 7):
+            ws_sum.cell(curr_r, col_i).border = thin_border
+        curr_r += 1
+
+    # Total row
+    ws_sum.cell(curr_r, 1, "TOTAL").font = bold_font
+    ws_sum.cell(curr_r, 3, f"=SUM(C9:C{curr_r-1})").font = bold_font
+    ws_sum.cell(curr_r, 3).number_format = "#,##0"
+    ws_sum.cell(curr_r, 4, f"=SUM(D9:D{curr_r-1})").font = bold_font
+    ws_sum.cell(curr_r, 4).number_format = num_format_currency
+    ws_sum.cell(curr_r, 5, 1.0).font = bold_font
+    ws_sum.cell(curr_r, 5).number_format = num_format_pct
+    ws_sum.cell(curr_r, 6, f"=SUM(F9:F{curr_r-1})").font = bold_font
+    ws_sum.cell(curr_r, 6).alignment = Alignment(horizontal="center")
+
+    for col_i in range(1, 7):
+        ws_sum.cell(curr_r, col_i).border = total_border
+
+    # Top 10 Cost Drivers
+    curr_r += 2
+    ws_sum.cell(curr_r, 1, "TOP 10 COST DRIVERS ACROSS ALL STOCK REQUESTS").font = bold_font
+    curr_r += 1
+
+    headers_top = ["Rank", "Item Name", "Category", "Total Qty", "Unit", "Total Cost (IDR)", "% of Spend"]
+    for c_idx, h in enumerate(headers_top, 1):
+        cell = ws_sum.cell(curr_r, c_idx, h)
+        cell.font = white_bold
+        cell.fill = navy_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    curr_r += 1
+
+    if not sr_df.empty:
+        top_items = sr_df.groupby(['Item_Name', 'Category', 'Unit'], as_index=False).agg(
+            Total_Qty=('Qty', 'sum'),
+            Total_Amount=('Total', 'sum')
+        ).sort_values(by='Total_Amount', ascending=False).head(10).reset_index(drop=True)
+
+        for rank, (_, row) in enumerate(top_items.iterrows(), 1):
+            ws_sum.cell(curr_r, 1, rank).font = regular_font
+            ws_sum.cell(curr_r, 1).alignment = Alignment(horizontal="center")
+            ws_sum.cell(curr_r, 2, row['Item_Name']).font = bold_font
+            ws_sum.cell(curr_r, 3, row['Category']).font = regular_font
+            ws_sum.cell(curr_r, 4, row['Total_Qty']).font = regular_font
+            ws_sum.cell(curr_r, 4).number_format = "#,##0"
+            ws_sum.cell(curr_r, 5, row['Unit']).font = regular_font
+            ws_sum.cell(curr_r, 6, row['Total_Amount']).font = bold_font
+            ws_sum.cell(curr_r, 6).number_format = num_format_currency
+            pct = row['Total_Amount'] / total_amount if total_amount > 0 else 0.0
+            ws_sum.cell(curr_r, 7, pct).font = regular_font
+            ws_sum.cell(curr_r, 7).number_format = num_format_pct
+
+            for col_i in range(1, 8):
+                ws_sum.cell(curr_r, col_i).border = thin_border
+            curr_r += 1
+
+    # ==========================================
+    # HELPER: Function to create a category tab
+    # ==========================================
+    def add_sr_category_tab(cat_name: str):
+        cat_df = sr_df[sr_df['Category'] == cat_name].copy() if not sr_df.empty else pd.DataFrame()
+        if cat_df.empty:
+            return
+
+        ws = wb.create_sheet(title=cat_name)
+        ws.views.sheetView[0].showGridLines = True
+
+        cat_total = cat_df['Total'].sum()
+        cat_qty = cat_df['Qty'].sum()
+
+        ws["A1"] = f"{cat_name} - Stock Request Breakdown"
+        ws["A1"].font = title_font
+        ws["A2"] = f"Total Spend: Rp {cat_total:,.0f} | Total Quantity: {cat_qty:,.0f} across {len(cat_df)} requests"
+        ws["A2"].font = subtitle_font
+
+        # 1. Aggregated Item Summary
+        ws.cell(4, 1, "ITEM SUMMARY (Total Quantities & Costs)").font = bold_font
+
+        item_agg = cat_df.groupby(['Item_Code', 'Item_Name', 'Unit'], as_index=False).agg(
+            Total_Qty=('Qty', 'sum'),
+            Avg_Cost=('Cost', 'mean'),
+            Total_Amount=('Total', 'sum'),
+            Order_Count=('SR_Number', 'nunique')
+        ).sort_values(by='Total_Amount', ascending=False).reset_index(drop=True)
+
+        headers_item = ["Item Code", "Item Name", "Total Qty", "Unit", "Avg Unit Cost (IDR)", "Total Spend (IDR)", "% of Category", "Orders Count"]
+        for c_idx, h in enumerate(headers_item, 1):
+            cell = ws.cell(5, c_idx, h)
+            cell.font = white_bold
+            cell.fill = blue_header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        r = 6
+        start_item_r = r
+        for _, row in item_agg.iterrows():
+            ws.cell(r, 1, row['Item_Code']).font = regular_font
+            ws.cell(r, 2, row['Item_Name']).font = bold_font
+            ws.cell(r, 3, row['Total_Qty']).font = bold_font
+            ws.cell(r, 3).number_format = "#,##0"
+            ws.cell(r, 3).alignment = Alignment(horizontal="right")
+            ws.cell(r, 4, row['Unit']).font = regular_font
+            ws.cell(r, 5, row['Avg_Cost']).font = regular_font
+            ws.cell(r, 5).number_format = num_format_currency
+            ws.cell(r, 6, row['Total_Amount']).font = bold_font
+            ws.cell(r, 6).number_format = num_format_currency
+            pct = (row['Total_Amount'] / cat_total) if cat_total > 0 else 0.0
+            ws.cell(r, 7, pct).font = regular_font
+            ws.cell(r, 7).number_format = num_format_pct
+            ws.cell(r, 8, row['Order_Count']).font = regular_font
+            ws.cell(r, 8).alignment = Alignment(horizontal="center")
+
+            for col_i in range(1, 9):
+                ws.cell(r, col_i).border = thin_border
+            r += 1
+
+        # Item Summary Subtotal
+        ws.cell(r, 2, "SUBTOTAL").font = bold_font
+        ws.cell(r, 3, f"=SUM(C{start_item_r}:C{r-1})").font = bold_font
+        ws.cell(r, 3).number_format = "#,##0"
+        ws.cell(r, 6, f"=SUM(F{start_item_r}:F{r-1})").font = bold_font
+        ws.cell(r, 6).number_format = num_format_currency
+        for col_i in range(1, 9):
+            ws.cell(r, col_i).border = total_border
+
+        # 2. Detailed Issuing History (Chronological)
+        r += 2
+        ws.cell(r, 1, "CHRONOLOGICAL STOCK REQUEST / ISSUING LOG").font = bold_font
+        r += 1
+
+        headers_log = ["Date", "SR Reference", "Item Code", "Item Name", "Qty", "Unit", "Unit Cost (IDR)", "Total (IDR)", "Requested By"]
+        for c_idx, h in enumerate(headers_log, 1):
+            cell = ws.cell(r, c_idx, h)
+            cell.font = white_bold
+            cell.fill = dark_slate_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        r += 1
+
+        start_log_r = r
+        cat_sorted = cat_df.sort_values(by=['Date', 'SR_Number', 'Item_Name'])
+        for _, row in cat_sorted.iterrows():
+            ws.cell(r, 1, row['Date']).font = regular_font
+            ws.cell(r, 2, row['SR_Number']).font = regular_font
+            ws.cell(r, 3, row['Item_Code']).font = regular_font
+            ws.cell(r, 4, row['Item_Name']).font = bold_font
+            ws.cell(r, 5, row['Qty']).font = regular_font
+            ws.cell(r, 5).number_format = "#,##0"
+            ws.cell(r, 6, row['Unit']).font = regular_font
+            ws.cell(r, 7, row['Cost']).font = regular_font
+            ws.cell(r, 7).number_format = num_format_currency
+            ws.cell(r, 8, row['Total']).font = bold_font
+            ws.cell(r, 8).number_format = num_format_currency
+            ws.cell(r, 9, row['Requested_By']).font = regular_font
+
+            for col_i in range(1, 10):
+                ws.cell(r, col_i).border = thin_border
+            r += 1
+
+        # Log Subtotal
+        ws.cell(r, 4, "TOTAL ISSUED").font = bold_font
+        ws.cell(r, 5, f"=SUM(E{start_log_r}:E{r-1})").font = bold_font
+        ws.cell(r, 5).number_format = "#,##0"
+        ws.cell(r, 8, f"=SUM(H{start_log_r}:H{r-1})").font = bold_font
+        ws.cell(r, 8).number_format = num_format_currency
+        for col_i in range(1, 10):
+            ws.cell(r, col_i).border = total_border
+
+    # Create category tabs
+    add_sr_category_tab("Guest Supplies")
+    add_sr_category_tab("Cleaning Supplies")
+    add_sr_category_tab("Paper Supplies")
+    add_sr_category_tab("Print & Stationery")
+
+    # ==========================================
+    # SHEET 6: All Stock Requests Log
+    # ==========================================
+    ws_all = wb.create_sheet(title="All SR Items")
+    ws_all.views.sheetView[0].showGridLines = True
+
+    headers_all = [
+        "Date", "SR Reference", "Category", "Item Code", "Item Name",
+        "Qty", "Unit", "Unit Cost (IDR)", "Total (IDR)", "Requested By", "Source File"
+    ]
+    for c_idx, h in enumerate(headers_all, 1):
+        cell = ws_all.cell(1, c_idx, h)
+        cell.font = white_bold
+        cell.fill = navy_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for r_idx, (_, row) in enumerate(sr_df.iterrows(), 2):
+        ws_all.cell(r_idx, 1, row['Date']).font = regular_font
+        ws_all.cell(r_idx, 2, row['SR_Number']).font = regular_font
+        ws_all.cell(r_idx, 3, row['Category']).font = bold_font
+        ws_all.cell(r_idx, 4, row['Item_Code']).font = regular_font
+        ws_all.cell(r_idx, 5, row['Item_Name']).font = bold_font
+        ws_all.cell(r_idx, 6, row['Qty']).font = regular_font
+        ws_all.cell(r_idx, 6).number_format = "#,##0"
+        ws_all.cell(r_idx, 7, row['Unit']).font = regular_font
+        ws_all.cell(r_idx, 8, row['Cost']).font = regular_font
+        ws_all.cell(r_idx, 8).number_format = num_format_currency
+        ws_all.cell(r_idx, 9, row['Total']).font = bold_font
+        ws_all.cell(r_idx, 9).number_format = num_format_currency
+        ws_all.cell(r_idx, 10, row['Requested_By']).font = regular_font
+        ws_all.cell(r_idx, 11, row.get('Source_File', '')).font = regular_font
+
+        for col_i in range(1, 12):
+            ws_all.cell(r_idx, col_i).border = thin_border
+
+    # Auto-adjust column widths across all sheets
+    for ws in wb.worksheets:
+        for col in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                val = cell.value
+                if val is not None and not str(val).startswith("="):
+                    max_len = max(max_len, len(str(val)))
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+    if output_path:
+        wb.save(output_path)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+

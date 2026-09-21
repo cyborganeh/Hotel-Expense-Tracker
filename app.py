@@ -5,6 +5,7 @@ Interactive Expense Separator & Spending Tracker.
 
 import os
 import io
+import glob
 from typing import Tuple, Optional, Dict, Any, List
 import numpy as np
 import streamlit as st
@@ -15,6 +16,7 @@ import plotly.graph_objects as go
 import parser
 import matcher
 import exporter
+import sr_parser
 
 # Configure Streamlit page
 st.set_page_config(
@@ -183,6 +185,283 @@ def combine_month_datasets(month_data_dict: dict) -> Tuple[Optional[dict], str]:
     return combined_data, month_names_str
 
 
+def render_sr_separator():
+    """
+    Warehouse Stock Request (SR) Separator UI.
+    Extracts, categorizes, and analyzes items from Gudang Central SR PDFs.
+    """
+    BASE_SR_DIR = "/home/rzl/Documents/Hotel Santika Depok/2. SR Report/SR REPORT/SR SEPTEMBER"
+    has_local_sr = os.path.exists(BASE_SR_DIR)
+
+    st.sidebar.markdown("### 📦 SR Data Source")
+    sr_options = []
+    if has_local_sr:
+        sr_options.append("Load Local September SRs")
+    sr_options.append("Upload SR PDFs")
+
+    sr_source = st.sidebar.radio("Select Source", sr_options, index=0)
+
+    sr_df = pd.DataFrame()
+    sr_report_title = "SR Report September 2026"
+
+    if sr_source == "Load Local September SRs":
+        st.sidebar.markdown("**Local Folder:** `SR SEPTEMBER`")
+        local_pdfs = sorted(glob.glob(os.path.join(BASE_SR_DIR, "*.pdf")))
+        st.sidebar.caption(f"Found {len(local_pdfs)} PDF files:")
+        for lp in local_pdfs:
+            st.sidebar.caption(f"📄 {os.path.basename(lp)}")
+        if local_pdfs:
+            with st.spinner("Parsing local SR PDF files..."):
+                sr_df = sr_parser.parse_multiple_sr_pdfs(local_pdfs)
+            sr_report_title = "SR Report September 2026"
+
+    elif sr_source == "Upload SR PDFs":
+        uploaded_pdfs = st.sidebar.file_uploader(
+            "Upload Stock Request PDFs",
+            type=["pdf"],
+            accept_multiple_files=True,
+            help="Upload one or multiple SR PDF files from Gudang Central."
+        )
+        sr_label = st.sidebar.text_input("Report Title / Month", "Stock Request Report")
+        sr_report_title = sr_label
+        if uploaded_pdfs:
+            with st.spinner(f"Parsing {len(uploaded_pdfs)} SR PDF(s)..."):
+                sr_df = sr_parser.parse_multiple_sr_pdfs(uploaded_pdfs)
+
+    if sr_df.empty:
+        st.info("👈 Please select or upload Stock Request (SR) PDF files from the sidebar to begin.")
+        st.markdown("""
+        ### About Warehouse Stock Request (SR) Separator
+        This tool extracts items from Gudang Central Stock Request PDFs and separates them automatically into:
+        - 🛎️ **Guest Supplies**: Soap, slipper, toothbrush, shower cap, coffee, tea, sugar, Cleo water, etc.
+        - 🧹 **Cleaning Supplies**: Garbage bags (Plastik sampah), cleaning chemicals, glass cleaner, etc.
+        - 🧻 **Paper Supplies**: Facial tissue, hand towel, toilet roll, plastic roll.
+        - 📑 **Print & Stationery**: Form blanks, staplers, tape, stationery items.
+
+        **Supported formats**: Stock Request Consumption PDFs from Hotel Santika Depok (`.pdf`).
+        """)
+        return
+
+    # Generate Excel export buffer
+    excel_sr_bytes = exporter.create_sr_separated_excel(sr_df, sr_report_title)
+
+    st.sidebar.divider()
+    st.sidebar.markdown("### 📥 Quick Export")
+    st.sidebar.download_button(
+        label="Download Separated SR Excel (.xlsx)",
+        data=excel_sr_bytes,
+        file_name=f"Separated_SR_{sr_report_title.replace(' ', '_')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        type="primary"
+    )
+
+    # Main Page UI
+    st.markdown('<div class="main-header">Warehouse Stock Request (SR) Separator</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-header">Hotel Santika Depok • Gudang Central Issuing to Housekeeping • <b>{sr_report_title}</b></div>', unsafe_allow_html=True)
+
+    # Top KPI Metrics
+    tot_amt = sr_df['Total'].sum()
+    tot_qty = sr_df['Qty'].sum()
+    tot_items = sr_df['Item_Name'].nunique()
+    tot_orders = sr_df['SR_Number'].nunique()
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">TOTAL SPEND (SR)</div>
+            <div class="metric-value">{format_idr(tot_amt)}</div>
+            <div class="metric-delta delta-neutral">{len(sr_df)} line items issued</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">TOTAL QUANTITY</div>
+            <div class="metric-value">{tot_qty:,.0f}</div>
+            <div class="metric-delta delta-pos">Across all units & categories</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">UNIQUE ITEMS</div>
+            <div class="metric-value">{tot_items}</div>
+            <div class="metric-delta delta-neutral">Distinct products ordered</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">SR ORDERS COUNT</div>
+            <div class="metric-value">{tot_orders}</div>
+            <div class="metric-delta delta-pos">Warehouse vouchers processed</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Tabs
+    tab_overview, tab_gs, tab_cs, tab_ps, tab_pst, tab_all, tab_exp = st.tabs([
+        "📊 Category Overview",
+        "🛎️ Guest Supplies",
+        "🧹 Cleaning Supplies",
+        "🧻 Paper Supplies",
+        "📑 Print & Stationery",
+        "📋 All Stock Requests Log",
+        "📥 Excel Export"
+    ])
+
+    cat_order = ['Guest Supplies', 'Cleaning Supplies', 'Paper Supplies', 'Print & Stationery']
+
+    # Tab 1: Category Overview
+    with tab_overview:
+        col_ch1, col_ch2 = st.columns([1, 1])
+
+        cat_sum = sr_parser.get_category_summary(sr_df)
+
+        with col_ch1:
+            st.markdown("#### Spending Share by Category")
+            fig_pie = px.pie(
+                cat_sum,
+                names='Category',
+                values='Total_Amount',
+                hole=0.45,
+                color='Category',
+                color_discrete_map={
+                    'Guest Supplies': '#2563EB',
+                    'Cleaning Supplies': '#059669',
+                    'Paper Supplies': '#D97706',
+                    'Print & Stationery': '#7C3AED'
+                }
+            )
+            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+            fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=320)
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        with col_ch2:
+            st.markdown("#### Top 10 Cost Drivers (All SR Items)")
+            top_10 = sr_df.groupby(['Item_Name', 'Category'], as_index=False)['Total'].sum().sort_values(by='Total', ascending=True).tail(10)
+            fig_bar = px.bar(
+                top_10,
+                x='Total',
+                y='Item_Name',
+                orientation='h',
+                color='Category',
+                color_discrete_map={
+                    'Guest Supplies': '#2563EB',
+                    'Cleaning Supplies': '#059669',
+                    'Paper Supplies': '#D97706',
+                    'Print & Stationery': '#7C3AED'
+                }
+            )
+            fig_bar.update_layout(
+                xaxis_title="Total Spend (IDR)",
+                yaxis_title="",
+                margin=dict(t=20, b=20, l=20, r=20),
+                height=320,
+                showlegend=False
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        st.markdown("#### Category Breakdown Summary")
+        disp_cat = cat_sum.copy()
+        disp_cat['Total_Qty'] = disp_cat['Total_Qty'].apply(lambda x: f"{x:,.0f}")
+        disp_cat['Total_Amount'] = disp_cat['Total_Amount'].apply(format_idr)
+        disp_cat['Pct_Of_Total'] = disp_cat['Pct_Of_Total'].apply(lambda x: f"{x:.1f}%")
+        st.dataframe(disp_cat, use_container_width=True, hide_index=True)
+
+    # Helper function for rendering a category tab
+    def render_category_view(category_name: str, emoji: str):
+        c_items = sr_parser.get_item_summary(sr_df, category_name)
+        c_trxs = sr_df[sr_df['Category'] == category_name].sort_values(by=['Date', 'Item_Name'])
+
+        if c_items.empty:
+            st.info(f"No {category_name} items recorded in the uploaded SR files.")
+            return
+
+        cat_amt = c_items['Total_Amount'].sum()
+        cat_q = c_items['Total_Qty'].sum()
+        pct_all = (cat_amt / tot_amt * 100.0) if tot_amt > 0 else 0.0
+
+        st.markdown(f"### {emoji} {category_name}")
+        st.markdown(f"**Total Spend:** {format_idr(cat_amt)} ({pct_all:.1f}% of SR spend) • **Total Qty:** {cat_q:,.0f} • **Unique Items:** {len(c_items)}")
+
+        st.markdown("#### Item Totals Summary (Repeated Orders Aggregated)")
+        disp_items = c_items.copy()
+        disp_items['Total_Qty'] = disp_items['Total_Qty'].apply(lambda x: f"{x:,.0f}")
+        disp_items['Avg_Cost'] = disp_items['Avg_Cost'].apply(format_idr)
+        disp_items['Total_Amount'] = disp_items['Total_Amount'].apply(format_idr)
+        st.dataframe(disp_items, use_container_width=True, hide_index=True)
+
+        with st.expander(f"📄 View Chronological Order & Issuing Log ({len(c_trxs)} records)", expanded=False):
+            disp_trxs = c_trxs[['Date', 'SR_Number', 'Item_Code', 'Item_Name', 'Qty', 'Unit', 'Cost', 'Total', 'Requested_By']].copy()
+            disp_trxs['Qty'] = disp_trxs['Qty'].apply(lambda x: f"{x:,.0f}")
+            disp_trxs['Cost'] = disp_trxs['Cost'].apply(format_idr)
+            disp_trxs['Total'] = disp_trxs['Total'].apply(format_idr)
+            st.dataframe(disp_trxs, use_container_width=True, hide_index=True)
+
+    with tab_gs:
+        render_category_view('Guest Supplies', '🛎️')
+
+    with tab_cs:
+        render_category_view('Cleaning Supplies', '🧹')
+
+    with tab_ps:
+        render_category_view('Paper Supplies', '🧻')
+
+    with tab_pst:
+        render_category_view('Print & Stationery', '📑')
+
+    with tab_all:
+        st.markdown("### 📋 Complete Stock Request Log")
+        col_f1, col_f2 = st.columns([1, 2])
+        with col_f1:
+            cat_filter = st.selectbox("Filter by Category", ["All Categories"] + cat_order)
+        with col_f2:
+            search_query = st.text_input("Search item, SR number, or requester", "")
+
+        filtered = sr_df.copy()
+        if cat_filter != "All Categories":
+            filtered = filtered[filtered['Category'] == cat_filter]
+        if search_query:
+            q = search_query.lower()
+            filtered = filtered[
+                filtered['Item_Name'].str.lower().str.contains(q) |
+                filtered['SR_Number'].str.lower().str.contains(q) |
+                filtered['Requested_By'].str.lower().str.contains(q)
+            ]
+
+        disp_all = filtered[['Date', 'SR_Number', 'Category', 'Item_Code', 'Item_Name', 'Qty', 'Unit', 'Cost', 'Total', 'Requested_By']].copy()
+        disp_all['Cost'] = disp_all['Cost'].apply(format_idr)
+        disp_all['Total'] = disp_all['Total'].apply(format_idr)
+        st.dataframe(disp_all, use_container_width=True, hide_index=True)
+
+        csv_bytes = filtered.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download Filtered Log (CSV)", csv_bytes, "Stock_Requests_Filtered.csv", "text/csv")
+
+    with tab_exp:
+        st.markdown("### 📥 Excel Export - Separated Stock Request Report")
+        st.markdown("""
+        The generated Excel workbook contains multiple pre-styled tabs matching the hotel standard format:
+        - 📊 **SR Summary**: KPI metrics, category spend breakdown, % shares, and top 10 cost drivers.
+        - 🛎️ **Guest Supplies**: Item summary totals + chronological issuing history.
+        - 🧹 **Cleaning Supplies**: Chemical and trash bag item summary + order log.
+        - 🧻 **Paper Supplies**: Facial tissue, hand towel, and toilet tissue totals + order log.
+        - 📑 **Print & Stationery**: Form and office supply totals + order log.
+        - 📋 **All SR Items**: Complete line item audit table.
+        """)
+
+        st.download_button(
+            label=f"📥 Download Full Separated SR Excel ({sr_report_title})",
+            data=excel_sr_bytes,
+            file_name=f"Separated_SR_{sr_report_title.replace(' ', '_')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary"
+        )
+
+
 # Base directories for standard data
 BASE_REVIEW_DIR = os.environ.get("HOTEL_DATA_DIR", "/home/rzl/Documents/Business Review")
 MONTH_FOLDERS = {
@@ -193,10 +472,21 @@ has_local_folder = os.path.exists(BASE_REVIEW_DIR)
 
 # Sidebar navigation & data selection
 st.sidebar.image("https://img.icons8.com/color/96/hotel-star.png", width=64)
-st.sidebar.title("Spending Separator")
-st.sidebar.markdown("**Hotel Santika Depok**\n*Room Division & Housekeeping*")
+st.sidebar.title("Santika Depok")
+st.sidebar.markdown("**Room Division & Housekeeping**")
+
+app_mode = st.sidebar.radio(
+    "Application Mode",
+    ["💰 Monthly Expense Tracker", "📦 Stock Request (SR) Separator"],
+    index=0
+)
 st.sidebar.divider()
 
+if app_mode == "📦 Stock Request (SR) Separator":
+    render_sr_separator()
+    st.stop()
+
+# --- Monthly Expense Tracker Mode Below ---
 data_source = st.sidebar.radio(
     "Select Data Source",
     ["Select Month Folder", "Upload Custom Excel Files", "Upload Multiple Months"],
