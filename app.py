@@ -5,6 +5,7 @@ Interactive Expense Separator & Spending Tracker.
 
 import os
 import io
+from typing import Tuple, Optional, Dict, Any, List
 import numpy as np
 import streamlit as st
 import pandas as pd
@@ -83,6 +84,105 @@ def format_pct(val):
     return f"{val:+.1f}%"
 
 
+def combine_month_datasets(month_data_dict: dict) -> Tuple[Optional[dict], str]:
+    if not month_data_dict:
+        return None, ""
+
+    all_trxs = []
+    for month_name, m_data in month_data_dict.items():
+        trx = m_data['transactions'].copy()
+        if 'Month' not in trx.columns or trx['Month'].isna().all():
+            trx['Month'] = month_name
+        all_trxs.append(trx)
+
+    combined_trxs = pd.concat(all_trxs, ignore_index=True)
+
+    combined_cat_summary = pd.concat([m['category_summary'] for m in month_data_dict.values()], ignore_index=True)
+    if not combined_cat_summary.empty:
+        grp_cat = combined_cat_summary.groupby('Category', as_index=False).agg({
+            'Department': 'first',
+            'Group': 'first',
+            'Actual': 'sum',
+            'Budget': 'sum',
+            'Transaction_Count': 'sum',
+            'Top_Item': 'first'
+        })
+        grp_cat['Variance_IDR'] = grp_cat['Actual'] - grp_cat['Budget']
+        grp_cat['Variance_Pct'] = np.where(
+            grp_cat['Budget'] > 0,
+            (grp_cat['Variance_IDR'] / grp_cat['Budget']) * 100.0,
+            0.0
+        )
+        grp_cat['Status'] = np.where(
+            grp_cat['Budget'] > 0,
+            np.where(grp_cat['Variance_IDR'] > 0, 'Over Budget', 'Under Budget'),
+            np.where(grp_cat['Actual'] > 0, 'Unbudgeted', 'On Track')
+        )
+        grp_cat = grp_cat.sort_values(by='Actual', ascending=False).reset_index(drop=True)
+    else:
+        grp_cat = pd.DataFrame()
+
+    top_items_df = (
+        combined_trxs.groupby(['Category', 'Item_Name', 'Partner_Vendor'], as_index=False)
+        .agg(
+            Total_Amount=('Amount', 'sum'),
+            Total_Qty=('Qty', 'sum'),
+            Unit=('Unit', 'first'),
+            Trx_Count=('Amount', 'count')
+        )
+        .sort_values(by='Total_Amount', ascending=False)
+        .reset_index(drop=True)
+    )
+
+    combined_trxs_copy = combined_trxs.copy()
+    cat_totals = combined_trxs_copy.groupby('Category')['Amount'].transform('sum')
+    combined_trxs_copy['Cat_Total'] = cat_totals
+
+    item_summary_df = combined_trxs_copy.groupby(['Category', 'Item_Name'], as_index=False).agg(
+        Total_Qty=('Qty', 'sum'),
+        Unit=('Unit', lambda u: next((str(x) for x in u if str(x).strip() and str(x) != 'nan'), '')),
+        Avg_Unit_Price=('Unit_Price', 'mean'),
+        Total_Amount=('Amount', 'sum'),
+        Order_Count=('Amount', 'count'),
+        First_Date=('Date', 'min'),
+        Last_Date=('Date', 'max'),
+        Cat_Total=('Cat_Total', 'first')
+    )
+
+    item_summary_df['Pct_Of_Category'] = np.where(
+        item_summary_df['Cat_Total'] > 0,
+        (item_summary_df['Total_Amount'] / item_summary_df['Cat_Total'] * 100.0).round(2),
+        0.0
+    )
+    item_summary_df = item_summary_df.sort_values(
+        by=['Category', 'Total_Amount'], ascending=[True, False]
+    ).reset_index(drop=True)
+
+    total_spent = combined_trxs['Amount'].sum()
+    total_budget = grp_cat['Budget'].sum() if not grp_cat.empty else 0.0
+    total_var = total_spent - total_budget
+    total_var_pct = (total_var / total_budget * 100.0) if total_budget > 0 else 0.0
+
+    combined_data = {
+        'transactions': combined_trxs,
+        'category_summary': grp_cat,
+        'top_cost_drivers': top_items_df,
+        'item_summary': item_summary_df,
+        'metrics': {
+            'total_spent': total_spent,
+            'total_budget': total_budget,
+            'variance_idr': total_var,
+            'variance_pct': total_var_pct,
+            'transaction_count': len(combined_trxs),
+            'category_count': len(grp_cat),
+            'unique_items_count': len(item_summary_df)
+        }
+    }
+
+    month_names_str = ", ".join(month_data_dict.keys())
+    return combined_data, month_names_str
+
+
 # Base directories for standard data
 BASE_REVIEW_DIR = os.environ.get("HOTEL_DATA_DIR", "/home/rzl/Documents/Business Review")
 MONTH_FOLDERS = {
@@ -107,76 +207,107 @@ reconciled_data = None
 selected_month_name = "Agustus 2026"
 
 if data_source == "Select Month Folder":
-    month_choice = st.sidebar.selectbox("Choose Month", list(MONTH_FOLDERS.keys()))
-    selected_month_name = month_choice.split()[0] + " 2026"
-    month_dir = MONTH_FOLDERS[month_choice]
-
-    if os.path.exists(month_dir):
-        files = parser.find_month_files(month_dir)
-        st.sidebar.markdown(f"**Loaded Files:**")
-        st.sidebar.caption(f"📁 DTB: {'✅ Found' if files['dtb'] else '❌ Missing'}")
-        st.sidebar.caption(f"📁 I/S MTD: {'✅ Found' if files['is_mtd'] else '❌ Missing'}")
-        st.sidebar.caption(f"📁 Consumption: {'✅ Found' if files['consumption'] else '❌ Missing'}")
-
-        if files['dtb']:
-            with st.spinner("Processing & reconciling financial records..."):
-                dtb_df = parser.parse_detail_trial_balance(files['dtb'])
-                is_df = parser.parse_income_statement(files['is_mtd']) if files['is_mtd'] else pd.DataFrame()
-                cons_df = parser.parse_consumption_report(files['consumption']) if files['consumption'] else pd.DataFrame()
-                reconciled_data = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+    selected_months = st.sidebar.multiselect(
+        "Choose Month(s) to Load",
+        options=list(MONTH_FOLDERS.keys()),
+        default=list(MONTH_FOLDERS.keys())
+    )
+    if selected_months:
+        month_data_dict = {}
+        for m_choice in selected_months:
+            m_dir = MONTH_FOLDERS[m_choice]
+            m_label = m_choice.split()[0] + " 2026"
+            if os.path.exists(m_dir):
+                files = parser.find_month_files(m_dir)
+                if files['dtb']:
+                    with st.spinner(f"Parsing {m_label}..."):
+                        dtb_df = parser.parse_detail_trial_balance(files['dtb'])
+                        is_df = parser.parse_income_statement(files['is_mtd']) if files['is_mtd'] else pd.DataFrame()
+                        cons_df = parser.parse_consumption_report(files['consumption']) if files['consumption'] else pd.DataFrame()
+                        month_data_dict[m_label] = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+        reconciled_data, selected_month_name = combine_month_datasets(month_data_dict)
     else:
-        st.sidebar.error(f"Directory not found: {month_dir}")
+        st.sidebar.warning("Please select at least one month folder.")
 
 elif data_source == "Upload Custom Excel Files":
-    st.sidebar.markdown("**Upload Monthly Excel Files:**")
-    dtb_file = st.sidebar.file_uploader("1. Detail Trial Balance (DTB)", type=["xlsx"])
-    is_file = st.sidebar.file_uploader("2. Income Statement Dept (MTD)", type=["xlsx"])
-    cons_file = st.sidebar.file_uploader("3. Consumption Report", type=["xlsx"])
-    selected_month_name = st.sidebar.text_input("Month Label", "Custom Month")
+    if "uploaded_months" not in st.session_state:
+        st.session_state.uploaded_months = {}
+    if "upload_counter" not in st.session_state:
+        st.session_state.upload_counter = 0
 
-    if dtb_file:
-        with st.spinner("Parsing uploaded files..."):
-            # Save temporary files to load via openpyxl
-            import tempfile
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_dtb:
-                f_dtb.write(dtb_file.read())
-                dtb_path = f_dtb.name
+    # Display currently loaded months with delete buttons
+    if st.session_state.uploaded_months:
+        st.sidebar.markdown("### 📁 Loaded Month Datasets")
+        for m_key in list(st.session_state.uploaded_months.keys()):
+            c1, c2 = st.sidebar.columns([4, 1])
+            c1.write(f"• **{m_key}**")
+            if c2.button("❌", key=f"del_{m_key}"):
+                del st.session_state.uploaded_months[m_key]
+                st.rerun()
+        if st.sidebar.button("🗑️ Clear All Loaded Months", type="secondary", use_container_width=True):
+            st.session_state.uploaded_months = {}
+            st.rerun()
+        st.sidebar.divider()
 
-            is_path = None
-            if is_file:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_is:
-                    f_is.write(is_file.read())
-                    is_path = f_is.name
+    st.sidebar.markdown("**Add Month Files:**")
+    default_month_label = f"Month {len(st.session_state.uploaded_months) + 1}"
+    selected_month_label = st.sidebar.text_input("Month Label (e.g. July 2026, Agustus 2026)", default_month_label)
 
-            cons_path = None
-            if cons_file:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_cons:
-                    f_cons.write(cons_file.read())
-                    cons_path = f_cons.name
+    dtb_file = st.sidebar.file_uploader("1. Detail Trial Balance (DTB)", type=["xlsx"], key=f"dtb_{st.session_state.upload_counter}")
+    is_file = st.sidebar.file_uploader("2. Income Statement Dept (MTD)", type=["xlsx"], key=f"is_{st.session_state.upload_counter}")
+    cons_file = st.sidebar.file_uploader("3. Consumption Report", type=["xlsx"], key=f"cons_{st.session_state.upload_counter}")
 
-            dtb_df = parser.parse_detail_trial_balance(dtb_path)
-            is_df = parser.parse_income_statement(is_path) if is_path else pd.DataFrame()
-            cons_df = parser.parse_consumption_report(cons_path) if cons_path else pd.DataFrame()
-            reconciled_data = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+    if st.sidebar.button("➕ Add This Month to Dashboard", type="primary", use_container_width=True):
+        if not dtb_file:
+            st.sidebar.error("Detail Trial Balance (DTB) file is required.")
+        else:
+            with st.spinner(f"Processing {selected_month_label}..."):
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_dtb:
+                    f_dtb.write(dtb_file.read())
+                    dtb_path = f_dtb.name
 
-            # Cleanup
-            try:
-                os.unlink(dtb_path)
-                if is_path: os.unlink(is_path)
-                if cons_path: os.unlink(cons_path)
-            except Exception:
-                pass
+                is_path = None
+                if is_file:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_is:
+                        f_is.write(is_file.read())
+                        is_path = f_is.name
+
+                cons_path = None
+                if cons_file:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_cons:
+                        f_cons.write(cons_file.read())
+                        cons_path = f_cons.name
+
+                dtb_df = parser.parse_detail_trial_balance(dtb_path)
+                is_df = parser.parse_income_statement(is_path) if is_path else pd.DataFrame()
+                cons_df = parser.parse_consumption_report(cons_path) if cons_path else pd.DataFrame()
+                parsed_m_data = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+
+                st.session_state.uploaded_months[selected_month_label] = parsed_m_data
+                st.session_state.upload_counter += 1
+
+                try:
+                    os.unlink(dtb_path)
+                    if is_path: os.unlink(is_path)
+                    if cons_path: os.unlink(cons_path)
+                except Exception:
+                    pass
+
+                st.toast(f"Added {selected_month_label} successfully!")
+                st.rerun()
+
+    # Automatically combine all accumulated uploaded months
+    if st.session_state.uploaded_months:
+        reconciled_data, selected_month_name = combine_month_datasets(st.session_state.uploaded_months)
 
 elif data_source == "Upload Multiple Months":
-    # Expect a zip file containing subfolders, each subfolder representing a month with the standard Excel files.
     zip_file = st.sidebar.file_uploader("Upload ZIP of month folders", type=["zip"])
     if zip_file:
-        import zipfile, tempfile, shutil
+        import zipfile, tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Extract zip contents
             with zipfile.ZipFile(zip_file) as z:
                 z.extractall(tmpdir)
-            # Identify month directories (folders directly under temp dir)
             month_dirs = [os.path.join(tmpdir, d) for d in os.listdir(tmpdir) if os.path.isdir(os.path.join(tmpdir, d))]
             month_data = {}
             for month_dir in month_dirs:
@@ -190,33 +321,8 @@ elif data_source == "Upload Multiple Months":
                     is_df = parser.parse_income_statement(files['is_mtd']) if files['is_mtd'] else pd.DataFrame()
                     cons_df = parser.parse_consumption_report(files['consumption']) if files['consumption'] else pd.DataFrame()
                     month_data[month_label] = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
-        if month_data:
-            # Combine metrics
-            combined_metrics = {
-                'total_spent': sum(d['metrics']['total_spent'] for d in month_data.values()),
-                'total_budget': sum(d['metrics']['total_budget'] for d in month_data.values()),
-                'transaction_count': sum(d['metrics']['transaction_count'] for d in month_data.values()),
-                'variance_idr': sum(d['metrics']['variance_idr'] for d in month_data.values()),
-                'variance_pct': None,  # will compute below
-                'budget_utilization_pct': None,
-            }
-            # Compute derived percentages safely
-            if combined_metrics['total_budget'] > 0:
-                combined_metrics['variance_pct'] = (combined_metrics['variance_idr'] / combined_metrics['total_budget']) * 100.0
-                combined_metrics['budget_utilization_pct'] = (combined_metrics['total_spent'] / combined_metrics['total_budget']) * 100.0
-            # Concatenate DataFrames
-            combined_cat = pd.concat([d['category_summary'] for d in month_data.values()], ignore_index=True)
-            combined_trx = pd.concat([d['transactions'] for d in month_data.values()], ignore_index=True)
-            combined_top = pd.concat([d['top_cost_drivers'] for d in month_data.values()], ignore_index=True)
-            combined_item = pd.concat([d.get('item_summary', pd.DataFrame()) for d in month_data.values()], ignore_index=True)
-            reconciled_data = {
-                'metrics': combined_metrics,
-                'category_summary': combined_cat,
-                'transactions': combined_trx,
-                'top_cost_drivers': combined_top,
-                'item_summary': combined_item,
-            }
-            selected_month_name = ", ".join(month_data.keys())
+            if month_data:
+                reconciled_data, selected_month_name = combine_month_datasets(month_data)
 
 
 if reconciled_data:
