@@ -52,6 +52,36 @@ st.markdown("""
         border-radius: 10px;
         padding: 1rem;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        /* Explicit text colors so cards stay readable in dark mode
+           (Streamlit would otherwise inherit white text onto this light card). */
+        color: #0F172A;
+    }
+    /* KPI card text layers (used by the SR Separator metric cards).
+       These were referenced in markup but never styled, leaving white
+       theme text on the near-white card background. */
+    .metric-card .metric-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: #475569;
+        margin-bottom: 0.25rem;
+    }
+    .metric-card .metric-value {
+        font-size: 1.6rem;
+        font-weight: 800;
+        color: #1E3A8A;
+        line-height: 1.2;
+    }
+    .metric-card .metric-delta {
+        font-size: 0.85rem;
+        margin-top: 0.25rem;
+        color: #64748B;
+    }
+    .metric-card .metric-delta.delta-pos {
+        color: #166534;
+    }
+    .metric-card .metric-delta.delta-neutral {
+        color: #64748B;
     }
     .badge-over {
         background-color: #FEE2E2;
@@ -329,18 +359,14 @@ def render_sr_separator():
 
         with col_ch1:
             st.markdown("#### Spending Share by Category")
+            # color='Category' with no color_discrete_map keeps Streamlit's themed
+            # sentinel palette, which adapts automatically to light/dark mode.
             fig_pie = px.pie(
                 cat_sum,
                 names='Category',
                 values='Total_Amount',
                 hole=0.45,
-                color='Category',
-                color_discrete_map={
-                    'Guest Supplies': '#2563EB',
-                    'Cleaning Supplies': '#059669',
-                    'Paper Supplies': '#D97706',
-                    'Print & Stationery': '#7C3AED'
-                }
+                color='Category'
             )
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
             fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=320)
@@ -349,18 +375,14 @@ def render_sr_separator():
         with col_ch2:
             st.markdown("#### Top 10 Cost Drivers (All SR Items)")
             top_10 = sr_df.groupby(['Item_Name', 'Category'], as_index=False)['Total'].sum().sort_values(by='Total', ascending=True).tail(10)
+            # Same themed palette as the pie so category colors stay consistent
+            # across charts and adapt to the active theme.
             fig_bar = px.bar(
                 top_10,
                 x='Total',
                 y='Item_Name',
                 orientation='h',
-                color='Category',
-                color_discrete_map={
-                    'Guest Supplies': '#2563EB',
-                    'Cleaning Supplies': '#059669',
-                    'Paper Supplies': '#D97706',
-                    'Print & Stationery': '#7C3AED'
-                }
+                color='Category'
             )
             fig_bar.update_layout(
                 xaxis_title="Total Spend (IDR)",
