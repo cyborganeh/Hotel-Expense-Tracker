@@ -41,7 +41,12 @@ def render_kpi_row(items: Sequence[Dict[str, Any]], num_columns: Optional[int] =
         delta_html = ""
         if delta:
             tone = item.get("delta_tone", "neutral")
-            delta_html = f'<div class="metric-delta delta-{tone}">{delta}</div>'
+            prefix = ""
+            if tone == "pos" and not str(delta).startswith(("+", "▲", "↑")):
+                prefix = "↑ "
+            elif tone == "neg" and not str(delta).startswith(("-", "▼", "↓")):
+                prefix = "↓ "
+            delta_html = f'<div class="metric-delta delta-{tone}">{prefix}{delta}</div>'
         with col:
             st.markdown(
                 f"""
@@ -70,7 +75,7 @@ def themed_donut(
 ) -> "plotly.graph_objects.Figure":
     """Category donut chart using the themed palette."""
     fig = px.pie(df, names=names, values=values, hole=hole, color=names)
-    fig.update_traces(textposition="inside", textinfo="percent+label")
+    fig.update_traces(textposition="auto", textinfo="percent+label")
     fig.update_layout(margin=CHART_MARGINS, height=height, showlegend=showlegend)
     return fig
 

@@ -37,80 +37,132 @@ st.set_page_config(
 # Custom CSS styling for modern executive appearance
 st.markdown("""
 <style>
+    /* Clean typography & headers */
     .main-header {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #1E3A8A;
-        margin-bottom: 0.2rem;
+        font-size: 2.1rem;
+        font-weight: 750;
+        letter-spacing: -0.025em;
+        color: var(--text-color, #1e293b);
+        margin-bottom: 0.25rem;
+        line-height: 1.25;
     }
     .sub-header {
-        font-size: 1.05rem;
-        color: #64748B;
+        font-size: 0.96rem;
+        font-weight: 450;
+        color: var(--text-color, #475569);
+        opacity: 0.78;
         margin-bottom: 1.5rem;
     }
+
+    /* Balanced, theme-adaptive Metric Cards */
     .metric-card {
-        background: #F8FAFC;
-        border: 1px solid #E2E8F0;
-        border-radius: 10px;
-        padding: 1rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        /* Explicit text colors so cards stay readable in dark mode
-           (Streamlit would otherwise inherit white text onto this light card). */
-        color: #0F172A;
+        background-color: var(--secondary-background-color, rgba(128, 128, 128, 0.06));
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        color: var(--text-color, #0f172a);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        min-height: 110px;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
     }
-    /* KPI card text layers (used by the SR Separator metric cards).
-       These were referenced in markup but never styled, leaving white
-       theme text on the near-white card background. */
+    .metric-card:hover {
+        border-color: rgba(37, 99, 235, 0.5);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        transform: translateY(-1px);
+    }
     .metric-card .metric-label {
-        font-size: 0.75rem;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        color: #475569;
-        margin-bottom: 0.25rem;
+        font-size: 0.76rem;
+        font-weight: 650;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--text-color, #334155);
+        opacity: 0.75;
+        margin-bottom: 0.35rem;
     }
     .metric-card .metric-value {
-        font-size: 1.6rem;
-        font-weight: 800;
-        color: #1E3A8A;
+        font-size: 1.65rem;
+        font-weight: 750;
+        color: var(--text-color, #0f172a);
+        letter-spacing: -0.02em;
         line-height: 1.2;
     }
     .metric-card .metric-delta {
-        font-size: 0.85rem;
-        margin-top: 0.25rem;
-        color: #64748B;
+        font-size: 0.82rem;
+        font-weight: 550;
+        margin-top: 0.4rem;
+        display: flex;
+        align-items: center;
+        gap: 4px;
     }
     .metric-card .metric-delta.delta-pos {
-        color: #166534;
+        color: #16a34a;
     }
     .metric-card .metric-delta.delta-neg {
-        color: #991B1B;
+        color: #dc2626;
     }
     .metric-card .metric-delta.delta-neutral {
-        color: #64748B;
+        color: var(--text-color, #64748b);
+        opacity: 0.7;
     }
-    .badge-over {
-        background-color: #FEE2E2;
-        color: #991B1B;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-weight: 600;
-        font-size: 0.85rem;
+
+    /* Dark theme specific enhancements */
+    @media (prefers-color-scheme: dark) {
+        .metric-card {
+            border-color: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        .metric-card:hover {
+            border-color: rgba(96, 165, 250, 0.5);
+        }
+        .metric-card .metric-delta.delta-pos {
+            color: #4ade80 !important;
+        }
+        .metric-card .metric-delta.delta-neg {
+            color: #f87171 !important;
+        }
     }
-    .badge-under {
-        background-color: #DCFCE7;
-        color: #166534;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-weight: 600;
-        font-size: 0.85rem;
+    [data-theme="dark"] .metric-card,
+    .stApp[data-theme="dark"] .metric-card {
+        border-color: rgba(255, 255, 255, 0.12) !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
     }
+    [data-theme="dark"] .metric-card:hover,
+    .stApp[data-theme="dark"] .metric-card:hover {
+        border-color: rgba(96, 165, 250, 0.5) !important;
+    }
+    [data-theme="dark"] .metric-card .metric-delta.delta-pos,
+    .stApp[data-theme="dark"] .metric-card .metric-delta.delta-pos {
+        color: #4ade80 !important;
+    }
+    [data-theme="dark"] .metric-card .metric-delta.delta-neg,
+    .stApp[data-theme="dark"] .metric-card .metric-delta.delta-neg {
+        color: #f87171 !important;
+    }
+
+    /* Polished tabs */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 6px;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 10px 20px;
-        border-radius: 6px 6px 0 0;
-        font-weight: 600;
+        padding: 8px 16px;
+        border-radius: 8px 8px 0 0;
+        font-weight: 550;
+        font-size: 0.92rem;
+        color: var(--text-color);
+        opacity: 0.75;
+        transition: all 0.2s ease;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        opacity: 1;
+        background-color: rgba(128, 128, 128, 0.05);
+    }
+    .stTabs [aria-selected="true"] {
+        opacity: 1 !important;
+        font-weight: 650 !important;
     }
 </style>
 """, unsafe_allow_html=True)
