@@ -21,7 +21,11 @@ def process_month(input_dir: str, output_path: str = None, month_label: str = No
 
     base_name = os.path.basename(os.path.abspath(input_dir))
     if not month_label:
-        month_label = base_name
+        # Infer a canonical 'Month YYYY' label (e.g. '8.AGUSTUS' -> 'August 2026')
+        month_label = parser.infer_month_label(base_name, default=base_name)
+    else:
+        # Normalize explicitly supplied labels too (e.g. 'Agustus 2026' -> 'August 2026')
+        month_label = parser.infer_month_label(month_label, default=month_label)
 
     if not output_path:
         output_path = f"Separated_Expenses_{month_label.replace(' ', '_')}.xlsx"
@@ -97,7 +101,7 @@ def main():
         # Default to August if present
         default_dir = "/home/rzl/Documents/Business Review/8.AGUSTUS"
         if os.path.exists(default_dir):
-            process_month(default_dir, "Separated_Expenses_Agustus_2026.xlsx", "Agustus 2026")
+            process_month(default_dir)
         else:
             arg_parser.print_help()
 

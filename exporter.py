@@ -13,7 +13,7 @@ from openpyxl.utils import get_column_letter
 
 def create_separated_excel(
     reconciled_data: Dict[str, Any],
-    month_name: str = "Agustus 2026",
+    month_name: str = "August 2026",
     output_path: Optional[str] = None
 ) -> bytes:
     """

@@ -500,7 +500,7 @@ data_source = st.sidebar.radio(
 )
 
 reconciled_data = None
-selected_month_name = "Agustus 2026"
+selected_month_name = parser.infer_month_label("8.AGUSTUS")  # canonical fallback label
 
 if data_source == "Select Month Folder":
     selected_months = st.sidebar.multiselect(
@@ -512,7 +512,7 @@ if data_source == "Select Month Folder":
         month_data_dict = {}
         for m_choice in selected_months:
             m_dir = MONTH_FOLDERS[m_choice]
-            m_label = m_choice.split()[0] + " 2026"
+            m_label = parser.infer_month_label(m_choice)
             if os.path.exists(m_dir):
                 files = parser.find_month_files(m_dir)
                 if not files['dtb']:
@@ -612,7 +612,8 @@ elif data_source == "Upload Multiple Months":
             month_dirs = [os.path.join(tmpdir, d) for d in os.listdir(tmpdir) if os.path.isdir(os.path.join(tmpdir, d))]
             month_data = {}
             for month_dir in month_dirs:
-                month_label = os.path.basename(month_dir)
+                raw_label = os.path.basename(month_dir)
+                month_label = parser.infer_month_label(raw_label, default=raw_label)
                 files = parser.find_month_files(month_dir)
                 if not files['dtb']:
                     st.warning(f"DTB not found in {month_label}, skipping.")
@@ -1034,12 +1035,15 @@ if reconciled_data:
         if len(mom_folder_pairs) >= 2:
             mom_current_label, mom_current_dir = mom_folder_pairs[0]
             mom_previous_label, mom_previous_dir = mom_folder_pairs[1]
+            mom_current_name = parser.infer_month_label(mom_current_label)
+            mom_previous_name = parser.infer_month_label(mom_previous_label)
             st.markdown(
-                f"Track expense shifts between **{mom_current_label.split()[0]}** "
-                f"and **{mom_previous_label.split()[0]}**."
+                f"Track expense shifts between **{mom_current_name}** "
+                f"and **{mom_previous_name}**."
             )
         else:
             mom_current_label = mom_previous_label = None
+            mom_current_name = mom_previous_name = None
             mom_current_dir = mom_previous_dir = None
             st.info("Not enough month folders configured for MoM comparison.")
 
@@ -1052,7 +1056,7 @@ if reconciled_data:
             else:
                 # If the currently selected month isn't the MoM current month,
                 # re-parse it directly from its folder for a like-for-like comparison.
-                if (selected_month_name == mom_current_label.split()[0] + " 2026"
+                if (selected_month_name == mom_current_name
                         and mom_current_files['dtb']):
                     cur_dtb = parser.parse_detail_trial_balance(mom_current_files['dtb'])
                     cur_is = parser.parse_income_statement(mom_current_files['is_mtd']) if mom_current_files['is_mtd'] else pd.DataFrame()
@@ -1081,10 +1085,10 @@ if reconciled_data:
                     # MoM KPI overview
                     m1, m2, m3 = st.columns(3)
                     with m1:
-                        st.metric(mom_current_label.split()[0] + " Total", format_idr(cur_rec['metrics']['total_spent']))
+                        st.metric(mom_current_name + " Total", format_idr(cur_rec['metrics']['total_spent']))
                     with m2:
                         july_total = j_rec['metrics']['total_spent']
-                        st.metric(mom_previous_label.split()[0] + " Total", format_idr(july_total))
+                        st.metric(mom_previous_name + " Total", format_idr(july_total))
                     with m3:
                         net_mom = cur_rec['metrics']['total_spent'] - july_total
                         net_mom_pct = (net_mom / july_total * 100.0) if july_total > 0 else 0
@@ -1097,13 +1101,13 @@ if reconciled_data:
                     fig_mom.add_trace(go.Bar(
                         x=mom_top['Category'],
                         y=mom_top['July_Actual'],
-                        name=mom_previous_label.split()[0],
+                        name=mom_previous_name,
                         marker=dict(color='#94A3B8')
                     ))
                     fig_mom.add_trace(go.Bar(
                         x=mom_top['Category'],
                         y=mom_top['August_Actual'],
-                        name=mom_current_label.split()[0],
+                        name=mom_current_name,
                         marker=dict(color='#2563EB')
                     ))
                     fig_mom.update_layout(
@@ -1127,8 +1131,8 @@ if reconciled_data:
                         height=350,
                         column_config={
                             "Category": st.column_config.TextColumn("Expense Category", width="large"),
-                            "July_Actual": st.column_config.TextColumn(mom_previous_label.split()[0]),
-                            "August_Actual": st.column_config.TextColumn(mom_current_label.split()[0]),
+                            "July_Actual": st.column_config.TextColumn(mom_previous_name),
+                            "August_Actual": st.column_config.TextColumn(mom_current_name),
                             "MoM_Diff": st.column_config.TextColumn("MoM Change (IDR)"),
                             "MoM_Pct": st.column_config.TextColumn("MoM Change (%)"),
                         }

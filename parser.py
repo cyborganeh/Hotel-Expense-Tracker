@@ -42,6 +42,62 @@ ACCOUNT_MAP = {
 }
 
 
+# Month names for label inference: by leading month number and by name token
+# (English + common Indonesian abbreviations).
+_MONTH_NAMES_BY_NUMBER = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+_MONTH_NAMES_BY_TOKEN = {
+    'jan': 'January', 'feb': 'February', 'mar': 'March', 'apr': 'April',
+    'mei': 'May', 'may': 'May', 'jun': 'June', 'jul': 'July',
+    'agu': 'August', 'ags': 'August', 'agt': 'August', 'aug': 'August',
+    'sep': 'September', 'okt': 'October', 'oct': 'October',
+    'nov': 'November', 'des': 'December', 'dec': 'December',
+}
+
+
+def infer_month_label(source: str, default: str = '') -> str:
+    """
+    Infers a canonical 'Month YYYY' label from a folder name, file name, or
+    free-text label, normalizing English and Indonesian month names so that
+    '7.JULY' -> 'July 2026' and '8.AGUSTUS' -> 'August 2026' everywhere.
+
+    Resolution order:
+      1. Leading month number  ('7.JULY' -> July, '08 AGUSTUS' -> August)
+      2. Month-name token      ('agustus', 'aug', 'MEI', 'OKT', ...)
+      3. `default` if provided, else the cleaned input text
+
+    The year is taken from any 4-digit number in the input, else '2026'
+    (the app's reporting period).
+    """
+    text = str(source or '').strip()
+    if not text:
+        return default
+
+    year_match = re.search(r'(\d{4})', text)
+    year = year_match.group(1) if year_match else '2026'
+    without_year = re.sub(r'\d{4}', ' ', text)
+
+    month_name = ''
+    # An explicit month-name token wins over a leading number: in '09. Oktober'
+    # the number may be a day or folder sequence, while 'Oktober' is unambiguous.
+    for token in re.split(r'[^A-Za-z]+', without_year):
+        name = _MONTH_NAMES_BY_TOKEN.get(token.strip().lower()[:3], '')
+        if name:
+            month_name = name
+            break
+    if not month_name:
+        lead = re.match(r'^\s*(\d{1,2})\b', without_year)
+        if lead and 1 <= int(lead.group(1)) <= 12:
+            month_name = _MONTH_NAMES_BY_NUMBER[int(lead.group(1)) - 1]
+
+    if month_name:
+        return f"{month_name} {year}"
+    return default if default else re.sub(r'\s+', ' ', without_year).strip()
+
+
 def find_month_files(month_dir: str) -> Dict[str, Optional[str]]:
     """
     Scans a month folder (e.g., '8.AGUSTUS' or '7.JULY') and detects key Excel files.
