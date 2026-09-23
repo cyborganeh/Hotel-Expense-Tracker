@@ -155,17 +155,23 @@ def create_separated_excel(
             ws_sum.cell(r_idx, col_i).border = thin_border
 
     # Summary Totals Row
-    tot_row = start_row + len(cat_df) + 1
+    if cat_df.empty:
+        tot_row = start_row  # header exists but no data rows
+    else:
+        tot_row = start_row + len(cat_df) + 1
+    first_data_row = start_row + 1
     ws_sum.cell(tot_row, 1, "TOTAL").font = bold_font
-    ws_sum.cell(tot_row, 3, f"=SUM(C{start_row+1}:C{tot_row-1})").font = bold_font
+    ws_sum.cell(tot_row, 3, f"=SUM(C{first_data_row}:C{tot_row-1})").font = bold_font
     ws_sum.cell(tot_row, 3).number_format = num_format_currency
-    ws_sum.cell(tot_row, 4, f"=SUM(D{start_row+1}:D{tot_row-1})").font = bold_font
+    ws_sum.cell(tot_row, 4, f"=SUM(D{first_data_row}:D{tot_row-1})").font = bold_font
     ws_sum.cell(tot_row, 4).number_format = num_format_currency
     ws_sum.cell(tot_row, 5, f"=D{tot_row}-C{tot_row}").font = bold_font
     ws_sum.cell(tot_row, 5).number_format = num_format_currency
-    ws_sum.cell(tot_row, 6, f"=E{tot_row}/C{tot_row}").font = bold_font
+    if tot_row > first_data_row:
+        ws_sum.cell(tot_row, 6, f"=IF(C{tot_row}=0,0,E{tot_row}/C{tot_row})").font = bold_font
     ws_sum.cell(tot_row, 6).number_format = num_format_pct
-    ws_sum.cell(tot_row, 9, f"=SUM(I{start_row+1}:I{tot_row-1})").font = bold_font
+    if tot_row > first_data_row:
+        ws_sum.cell(tot_row, 9, f"=SUM(I{first_data_row}:I{tot_row-1})").font = bold_font
     ws_sum.cell(tot_row, 9).alignment = Alignment(horizontal="center")
 
     for col_i in range(1, 10):
@@ -316,7 +322,7 @@ def create_separated_excel(
         cat_items = item_df[item_df['Category'].isin(category_filters)].copy() if not item_df.empty else pd.DataFrame()
         curr_row = 4
         
-        if not cat_items.empty and len(cat_items) > 1:
+        if not cat_items.empty:
             ws.cell(curr_row, 1, "ITEM TOTALS SUMMARY (Total Quantities & Costs)").font = bold_font
             curr_row += 1
             

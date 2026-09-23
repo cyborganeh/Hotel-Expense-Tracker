@@ -5,6 +5,7 @@ matching 100% of spending back to items, vendors, and budget lines.
 """
 
 from typing import Dict, Any, Optional, Tuple, List
+import re
 import pandas as pd
 import numpy as np
 
@@ -18,6 +19,36 @@ def reconcile_monthly_expenses(
     """
     Performs full reconciliation and enrichment between DTB, Income Statement, and Consumption reports.
     """
+    # Guard: an empty DTB (e.g. no 035* accounts matched) must yield a well-formed
+    # empty result instead of crashing downstream consumers.
+    if dtb_df is None or len(dtb_df) == 0:
+        return {
+            'transactions': pd.DataFrame(columns=[
+                'Date', 'Category', 'Account_Code', 'Account_Name', 'Item_Name',
+                'Partner_Vendor', 'Voucher_Ref', 'Source', 'JRNL', 'Qty', 'Unit',
+                'Unit_Price', 'Amount', 'Raw_Description'
+            ]),
+            'category_summary': pd.DataFrame(columns=[
+                'Category', 'Department', 'Group', 'Actual', 'Budget',
+                'Variance_IDR', 'Variance_Pct', 'Ratio_Pct', 'Transaction_Count',
+                'Status', 'Top_Item'
+            ]),
+            'top_cost_drivers': pd.DataFrame(columns=[
+                'Category', 'Item_Name', 'Partner_Vendor', 'Total_Amount',
+                'Total_Qty', 'Unit', 'Trx_Count'
+            ]),
+            'item_summary': pd.DataFrame(columns=[
+                'Category', 'Item_Name', 'Total_Qty', 'Unit', 'Avg_Unit_Price',
+                'Total_Amount', 'Order_Count', 'First_Date', 'Last_Date',
+                'Cat_Total', 'Pct_Of_Category'
+            ]),
+            'metrics': {
+                'total_spent': 0.0, 'total_budget': 0.0, 'variance_idr': 0.0,
+                'variance_pct': 0.0, 'transaction_count': 0,
+                'category_count': 0, 'unique_items_count': 0
+            }
+        }
+
     # 1. Enrich DTB transactions with item details from Consumption Report
     enriched_rows = []
 
@@ -125,6 +156,7 @@ def reconcile_monthly_expenses(
 
     # 2. Build Category Summary matching with Income Statement Budget & Actual
     cat_summary_rows = []
+    is_clean = is_df[~is_df['Is_Subtotal']].copy() if not is_df.empty and 'Is_Subtotal' in is_df.columns else pd.DataFrame()
     
     # Filter out subtotal rows from Income Statement for clean comparison
     is_clean = is_df[~is_df['Is_Subtotal']].copy() if not is_df.empty else pd.DataFrame()
@@ -143,9 +175,9 @@ def reconcile_monthly_expenses(
 
         if not is_clean.empty:
             match = is_clean[is_clean['Description'].str.strip().str.lower() == cat_name.strip().lower()]
-            if match.empty:
-                # Fuzzy or partial match
-                match = is_clean[is_clean['Description'].str.contains(cat_name[:8], case=False, na=False)]
+            if match.empty and cat_name.strip():
+                # Fuzzy or partial match (escape so category names are treated literally)
+                match = is_clean[is_clean['Description'].str.contains(re.escape(cat_name[:8]), case=False, na=False)]
             
             if not match.empty:
                 m_row = match.iloc[0]

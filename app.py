@@ -6,6 +6,7 @@ Interactive Expense Separator & Spending Tracker.
 import os
 import io
 import glob
+import re
 from typing import Tuple, Optional, Dict, Any, List
 import numpy as np
 import streamlit as st
@@ -431,7 +432,7 @@ def render_sr_separator():
         if cat_filter != "All Categories":
             filtered = filtered[filtered['Category'] == cat_filter]
         if search_query:
-            q = search_query.lower()
+            q = re.escape(search_query.lower())
             filtered = filtered[
                 filtered['Item_Name'].str.lower().str.contains(q) |
                 filtered['SR_Number'].str.lower().str.contains(q) |
@@ -514,13 +515,16 @@ if data_source == "Select Month Folder":
             m_label = m_choice.split()[0] + " 2026"
             if os.path.exists(m_dir):
                 files = parser.find_month_files(m_dir)
-                if files['dtb']:
-                    with st.spinner(f"Parsing {m_label}..."):
-                        dtb_df = parser.parse_detail_trial_balance(files['dtb'])
-                        is_df = parser.parse_income_statement(files['is_mtd']) if files['is_mtd'] else pd.DataFrame()
-                        cons_df = parser.parse_consumption_report(files['consumption']) if files['consumption'] else pd.DataFrame()
-                        month_data_dict[m_label] = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
-        reconciled_data, selected_month_name = combine_month_datasets(month_data_dict)
+                if not files['dtb']:
+                    st.sidebar.warning(f"Detail Trial Balance not found for {m_label}; skipped.")
+                    continue
+                with st.spinner(f"Parsing {m_label}..."):
+                    dtb_df = parser.parse_detail_trial_balance(files['dtb'])
+                    is_df = parser.parse_income_statement(files['is_mtd']) if files['is_mtd'] else pd.DataFrame()
+                    cons_df = parser.parse_consumption_report(files['consumption']) if files['consumption'] else pd.DataFrame()
+                    month_data_dict[m_label] = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+        if month_data_dict:
+            reconciled_data, selected_month_name = combine_month_datasets(month_data_dict)
     else:
         st.sidebar.warning("Please select at least one month folder.")
 
@@ -555,6 +559,8 @@ elif data_source == "Upload Custom Excel Files":
     if st.sidebar.button("➕ Add This Month to Dashboard", type="primary", use_container_width=True):
         if not dtb_file:
             st.sidebar.error("Detail Trial Balance (DTB) file is required.")
+        elif selected_month_label in st.session_state.uploaded_months:
+            st.sidebar.error(f"Month label '{selected_month_label}' already exists — rename it to add another month.")
         else:
             with st.spinner(f"Processing {selected_month_label}..."):
                 import tempfile
@@ -618,6 +624,9 @@ elif data_source == "Upload Multiple Months":
                     month_data[month_label] = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
             if month_data:
                 reconciled_data, selected_month_name = combine_month_datasets(month_data)
+
+# Label used for MoM tab heading (falls back sensibly for multi-month selections)
+mom_month_name = selected_month_name
 
 
 if reconciled_data:
@@ -767,7 +776,7 @@ if reconciled_data:
                 filtered_items = filtered_items[filtered_items['Category'] == sel_item_cat]
 
             if item_search:
-                filtered_items = filtered_items[filtered_items['Item_Name'].str.lower().str.contains(item_search.lower(), na=False)]
+                filtered_items = filtered_items[filtered_items['Item_Name'].str.lower().str.contains(re.escape(item_search.lower()), na=False)]
 
         if not filtered_items.empty:
             # Summary KPIs for selected items
@@ -917,7 +926,7 @@ if reconciled_data:
             filtered_df = filtered_df[filtered_df['Category'] == selected_cat]
 
         if search_query:
-            q = search_query.lower()
+            q = re.escape(search_query.lower())
             filtered_df = filtered_df[
                 filtered_df['Item_Name'].str.lower().str.contains(q, na=False) |
                 filtered_df['Partner_Vendor'].str.lower().str.contains(q, na=False) |
@@ -1021,88 +1030,109 @@ if reconciled_data:
     # ==========================================
     with tab_mom:
         st.subheader("Month-over-Month Spending Comparison")
-        st.markdown("Track expense shifts between **August 2026** and **July 2026**.")
-
-        # Load July data if available
-        july_dir = MONTH_FOLDERS.get("July 2026 (Juli)")
-        aug_dir = MONTH_FOLDERS.get("August 2026 (Agustus)")
-
-        if july_dir and os.path.exists(july_dir) and aug_dir and os.path.exists(aug_dir):
-            with st.spinner("Calculating MoM trends..."):
-                july_files = parser.find_month_files(july_dir)
-                aug_files = parser.find_month_files(aug_dir)
-
-                j_dtb = parser.parse_detail_trial_balance(july_files['dtb'])
-                j_is = parser.parse_income_statement(july_files['is_mtd'])
-                j_cons = parser.parse_consumption_report(july_files['consumption'])
-                j_rec = matcher.reconcile_monthly_expenses(j_dtb, j_is, j_cons)
-
-                a_cat = cat_df[['Category', 'Actual']].rename(columns={'Actual': 'August_Actual'})
-                j_cat = j_rec['category_summary'][['Category', 'Actual']].rename(columns={'Actual': 'July_Actual'})
-
-                mom_df = pd.merge(a_cat, j_cat, on="Category", how="outer").fillna(0.0)
-                mom_df['MoM_Diff'] = mom_df['August_Actual'] - mom_df['July_Actual']
-                mom_df['MoM_Pct'] = (mom_df['MoM_Diff'] / mom_df['July_Actual'] * 100.0).replace([np.inf, -np.inf], 0.0).fillna(0.0)
-                mom_df = mom_df.sort_values(by="August_Actual", ascending=False)
-
-            # MoM KPI overview
-            m1, m2, m3 = st.columns(3)
-            with m1:
-                st.metric("August 2026 Total", format_idr(metrics['total_spent']))
-            with m2:
-                july_total = j_rec['metrics']['total_spent']
-                st.metric("July 2026 Total", format_idr(july_total))
-            with m3:
-                net_mom = metrics['total_spent'] - july_total
-                net_mom_pct = (net_mom / july_total * 100.0) if july_total > 0 else 0
-                st.metric("MoM Spending Shift", format_idr(net_mom), delta=f"{net_mom_pct:+.1f}%", delta_color="inverse")
-
-            # MoM Comparison Bar Chart
-            st.markdown("#### Top Categories Comparison (August vs July)")
-            mom_top = mom_df.head(8)
-            fig_mom = go.Figure()
-            fig_mom.add_trace(go.Bar(
-                x=mom_top['Category'],
-                y=mom_top['July_Actual'],
-                name='July 2026',
-                marker=dict(color='#94A3B8')
-            ))
-            fig_mom.add_trace(go.Bar(
-                x=mom_top['Category'],
-                y=mom_top['August_Actual'],
-                name='August 2026',
-                marker=dict(color='#2563EB')
-            ))
-            fig_mom.update_layout(
-                barmode='group',
-                height=380,
-                margin=dict(t=20, b=20, l=20, r=20),
-                yaxis_tickformat=','
-            )
-            st.plotly_chart(fig_mom, use_container_width=True)
-
-            # MoM Table
-            mom_display = mom_df.copy()
-            mom_display['August_Actual'] = mom_display['August_Actual'].apply(format_idr)
-            mom_display['July_Actual'] = mom_display['July_Actual'].apply(format_idr)
-            mom_display['MoM_Diff'] = mom_display['MoM_Diff'].apply(format_idr)
-            mom_display['MoM_Pct'] = mom_display['MoM_Pct'].apply(format_pct)
-
-            st.dataframe(
-                mom_display,
-                use_container_width=True,
-                height=350,
-                column_config={
-                    "Category": st.column_config.TextColumn("Expense Category", width="large"),
-                    "July_Actual": st.column_config.TextColumn("July 2026"),
-                    "August_Actual": st.column_config.TextColumn("August 2026"),
-                    "MoM_Diff": st.column_config.TextColumn("MoM Change (IDR)"),
-                    "MoM_Pct": st.column_config.TextColumn("MoM Change (%)"),
-                }
+        mom_folder_pairs = list(MONTH_FOLDERS.items())
+        if len(mom_folder_pairs) >= 2:
+            mom_current_label, mom_current_dir = mom_folder_pairs[0]
+            mom_previous_label, mom_previous_dir = mom_folder_pairs[1]
+            st.markdown(
+                f"Track expense shifts between **{mom_current_label.split()[0]}** "
+                f"and **{mom_previous_label.split()[0]}**."
             )
         else:
-            st.info("Previous month data not found for MoM comparison.")
+            mom_current_label = mom_previous_label = None
+            mom_current_dir = mom_previous_dir = None
+            st.info("Not enough month folders configured for MoM comparison.")
 
+        if mom_current_dir and mom_previous_dir:
+            mom_current_files = parser.find_month_files(mom_current_dir)
+            mom_previous_files = parser.find_month_files(mom_previous_dir)
+
+            if not mom_previous_files['dtb']:
+                st.info("Previous month data not found for MoM comparison.")
+            else:
+                # If the currently selected month isn't the MoM current month,
+                # re-parse it directly from its folder for a like-for-like comparison.
+                if (selected_month_name == mom_current_label.split()[0] + " 2026"
+                        and mom_current_files['dtb']):
+                    cur_dtb = parser.parse_detail_trial_balance(mom_current_files['dtb'])
+                    cur_is = parser.parse_income_statement(mom_current_files['is_mtd']) if mom_current_files['is_mtd'] else pd.DataFrame()
+                    cur_cons = parser.parse_consumption_report(mom_current_files['consumption']) if mom_current_files['consumption'] else pd.DataFrame()
+                    cur_rec = matcher.reconcile_monthly_expenses(cur_dtb, cur_is, cur_cons)
+                else:
+                    cur_rec = reconciled_data
+
+                with st.spinner("Calculating MoM trends..."):
+                    j_dtb = parser.parse_detail_trial_balance(mom_previous_files['dtb'])
+                    j_is = parser.parse_income_statement(mom_previous_files['is_mtd']) if mom_previous_files['is_mtd'] else pd.DataFrame()
+                    j_cons = parser.parse_consumption_report(mom_previous_files['consumption']) if mom_previous_files['consumption'] else pd.DataFrame()
+                    j_rec = matcher.reconcile_monthly_expenses(j_dtb, j_is, j_cons)
+
+                if cur_rec['metrics']['transaction_count'] == 0 or j_rec['metrics']['transaction_count'] == 0:
+                    st.info("Previous month data not found for MoM comparison.")
+                else:
+                    a_cat = cur_rec['category_summary'][['Category', 'Actual']].rename(columns={'Actual': 'August_Actual'})
+                    j_cat = j_rec['category_summary'][['Category', 'Actual']].rename(columns={'Actual': 'July_Actual'})
+
+                    mom_df = pd.merge(a_cat, j_cat, on="Category", how="outer").fillna(0.0)
+                    mom_df['MoM_Diff'] = mom_df['August_Actual'] - mom_df['July_Actual']
+                    mom_df['MoM_Pct'] = (mom_df['MoM_Diff'] / mom_df['July_Actual'] * 100.0).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+                    mom_df = mom_df.sort_values(by="August_Actual", ascending=False)
+
+                    # MoM KPI overview
+                    m1, m2, m3 = st.columns(3)
+                    with m1:
+                        st.metric(mom_current_label.split()[0] + " Total", format_idr(cur_rec['metrics']['total_spent']))
+                    with m2:
+                        july_total = j_rec['metrics']['total_spent']
+                        st.metric(mom_previous_label.split()[0] + " Total", format_idr(july_total))
+                    with m3:
+                        net_mom = cur_rec['metrics']['total_spent'] - july_total
+                        net_mom_pct = (net_mom / july_total * 100.0) if july_total > 0 else 0
+                        st.metric("MoM Spending Shift", format_idr(net_mom), delta=f"{net_mom_pct:+.1f}%", delta_color="inverse")
+
+                    # MoM Comparison Bar Chart
+                    st.markdown("#### Top Categories Comparison")
+                    mom_top = mom_df.head(8)
+                    fig_mom = go.Figure()
+                    fig_mom.add_trace(go.Bar(
+                        x=mom_top['Category'],
+                        y=mom_top['July_Actual'],
+                        name=mom_previous_label.split()[0],
+                        marker=dict(color='#94A3B8')
+                    ))
+                    fig_mom.add_trace(go.Bar(
+                        x=mom_top['Category'],
+                        y=mom_top['August_Actual'],
+                        name=mom_current_label.split()[0],
+                        marker=dict(color='#2563EB')
+                    ))
+                    fig_mom.update_layout(
+                        barmode='group',
+                        height=380,
+                        margin=dict(t=20, b=20, l=20, r=20),
+                        yaxis_tickformat=','
+                    )
+                    st.plotly_chart(fig_mom, use_container_width=True)
+
+                    # MoM Table
+                    mom_display = mom_df.copy()
+                    mom_display['August_Actual'] = mom_display['August_Actual'].apply(format_idr)
+                    mom_display['July_Actual'] = mom_display['July_Actual'].apply(format_idr)
+                    mom_display['MoM_Diff'] = mom_display['MoM_Diff'].apply(format_idr)
+                    mom_display['MoM_Pct'] = mom_display['MoM_Pct'].apply(format_pct)
+
+                    st.dataframe(
+                        mom_display,
+                        use_container_width=True,
+                        height=350,
+                        column_config={
+                            "Category": st.column_config.TextColumn("Expense Category", width="large"),
+                            "July_Actual": st.column_config.TextColumn(mom_previous_label.split()[0]),
+                            "August_Actual": st.column_config.TextColumn(mom_current_label.split()[0]),
+                            "MoM_Diff": st.column_config.TextColumn("MoM Change (IDR)"),
+                            "MoM_Pct": st.column_config.TextColumn("MoM Change (%)"),
+                        }
+                    )
     # ==========================================
     # TAB 5: SEPARATED EXCEL & EXPORT
     # ==========================================
