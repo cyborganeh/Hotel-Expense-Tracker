@@ -11,18 +11,20 @@ from typing import Tuple, Optional, Dict, Any, List
 import numpy as np
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+import plotly.express as px  # noqa: F401  (re-imported so ui_components picks up the themed template)
+import plotly.graph_objects as go  # noqa: F401  (kept for parity with ui_components)
 
 import parser
 import matcher
 import exporter
 import sr_parser
+import ui_components
 import importlib
 importlib.reload(parser)
 importlib.reload(matcher)
 importlib.reload(exporter)
 importlib.reload(sr_parser)
+importlib.reload(ui_components)
 
 # Configure Streamlit page
 st.set_page_config(
@@ -79,6 +81,9 @@ st.markdown("""
     }
     .metric-card .metric-delta.delta-pos {
         color: #166534;
+    }
+    .metric-card .metric-delta.delta-neg {
+        color: #991B1B;
     }
     .metric-card .metric-delta.delta-neutral {
         color: #64748B;
@@ -302,39 +307,16 @@ def render_sr_separator():
     tot_items = sr_df['Item_Name'].nunique()
     tot_orders = sr_df['SR_Number'].nunique()
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">TOTAL SPEND (SR)</div>
-            <div class="metric-value">{format_idr(tot_amt)}</div>
-            <div class="metric-delta delta-neutral">{len(sr_df)} line items issued</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">TOTAL QUANTITY</div>
-            <div class="metric-value">{tot_qty:,.0f}</div>
-            <div class="metric-delta delta-pos">Across all units & categories</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">UNIQUE ITEMS</div>
-            <div class="metric-value">{tot_items}</div>
-            <div class="metric-delta delta-neutral">Distinct products ordered</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with c4:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">SR ORDERS COUNT</div>
-            <div class="metric-value">{tot_orders}</div>
-            <div class="metric-delta delta-pos">Warehouse vouchers processed</div>
-        </div>
-        """, unsafe_allow_html=True)
+    ui_components.render_kpi_row([
+        {'label': 'TOTAL SPEND (SR)', 'value': format_idr(tot_amt),
+         'delta': f"{len(sr_df)} line items issued", 'delta_tone': 'neutral'},
+        {'label': 'TOTAL QUANTITY', 'value': f"{tot_qty:,.0f}",
+         'delta': 'Across all units & categories', 'delta_tone': 'pos'},
+        {'label': 'UNIQUE ITEMS', 'value': str(tot_items),
+         'delta': 'Distinct products ordered', 'delta_tone': 'neutral'},
+        {'label': 'SR ORDERS COUNT', 'value': str(tot_orders),
+         'delta': 'Warehouse vouchers processed', 'delta_tone': 'pos'},
+    ])
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -359,37 +341,21 @@ def render_sr_separator():
 
         with col_ch1:
             st.markdown("#### Spending Share by Category")
-            # color='Category' with no color_discrete_map keeps Streamlit's themed
-            # sentinel palette, which adapts automatically to light/dark mode.
-            fig_pie = px.pie(
-                cat_sum,
-                names='Category',
-                values='Total_Amount',
-                hole=0.45,
-                color='Category'
-            )
-            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-            fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=320)
+            fig_pie = ui_components.themed_donut(cat_sum, names='Category', values='Total_Amount')
             st.plotly_chart(fig_pie, use_container_width=True)
 
         with col_ch2:
             st.markdown("#### Top 10 Cost Drivers (All SR Items)")
             top_10 = sr_df.groupby(['Item_Name', 'Category'], as_index=False)['Total'].sum().sort_values(by='Total', ascending=True).tail(10)
-            # Same themed palette as the pie so category colors stay consistent
-            # across charts and adapt to the active theme.
-            fig_bar = px.bar(
+            fig_bar = ui_components.themed_bar(
                 top_10,
                 x='Total',
                 y='Item_Name',
+                color='Category',
                 orientation='h',
-                color='Category'
-            )
-            fig_bar.update_layout(
-                xaxis_title="Total Spend (IDR)",
-                yaxis_title="",
-                margin=dict(t=20, b=20, l=20, r=20),
-                height=320,
-                showlegend=False
+                value_axis_title="Total Spend (IDR)",
+                value_tickformat=',',
+                showlegend=False,
             )
             st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -677,19 +643,20 @@ if reconciled_data:
     st.markdown(f'<div class="sub-header">Hotel Santika Depok • Room Division & Housekeeping • Period: <b>{selected_month_name}</b></div>', unsafe_allow_html=True)
 
     # Top KPI Metrics row
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric("Total Spent", format_idr(metrics['total_spent']))
-    with col2:
-        st.metric("Total Budget", format_idr(metrics['total_budget']))
-    with col3:
-        var_color = "normal" if metrics['variance_idr'] <= 0 else "inverse"
-        st.metric("Net Variance", format_idr(metrics['variance_idr']), delta=f"{metrics['variance_pct']:.1f}%", delta_color=var_color)
-    with col4:
-        st.metric("Reconciled Transactions", f"{metrics['transaction_count']:,} txns")
-    with col5:
-        budget_pct = (metrics['total_spent'] / metrics['total_budget'] * 100) if metrics['total_budget'] > 0 else 0
-        st.metric("Budget Utilization", f"{budget_pct:.1f}%")
+    budget_pct = (metrics['total_spent'] / metrics['total_budget'] * 100) if metrics['total_budget'] > 0 else 0
+    ui_components.render_kpi_row([
+        {'label': 'TOTAL SPENT', 'value': format_idr(metrics['total_spent']),
+         'delta': None},
+        {'label': 'TOTAL BUDGET', 'value': format_idr(metrics['total_budget']),
+         'delta': None},
+        {'label': 'NET VARIANCE', 'value': format_idr(metrics['variance_idr']),
+         'delta': f"{metrics['variance_pct']:+.1f}% vs budget",
+         'delta_tone': 'pos' if metrics['variance_idr'] <= 0 else 'neg'},
+        {'label': 'RECONCILED TRANSACTIONS', 'value': f"{metrics['transaction_count']:,}",
+         'delta': 'ledger entries classified', 'delta_tone': 'neutral'},
+        {'label': 'BUDGET UTILIZATION', 'value': f"{budget_pct:.1f}%",
+         'delta': 'share of budget consumed', 'delta_tone': 'neutral'},
+    ])
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -711,42 +678,23 @@ if reconciled_data:
 
         with col_left:
             st.subheader("Spend Distribution by Category")
-            # Donut chart
-            fig_pie = px.pie(
-                cat_df,
-                values="Actual",
-                names="Category",
-                hole=0.45,
-                color_discrete_sequence=px.colors.qualitative.Prism
+            fig_pie = ui_components.themed_donut(
+                cat_df, values="Actual", names="Category", height=360, showlegend=False
             )
-            fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-            fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), showlegend=False, height=360)
             st.plotly_chart(fig_pie, use_container_width=True)
 
         with col_right:
             st.subheader("Budget vs. Actual (Top 8 Categories)")
             top_cats = cat_df.head(8).sort_values(by="Actual", ascending=True)
-            fig_bar = go.Figure()
-            fig_bar.add_trace(go.Bar(
-                y=top_cats['Category'],
-                x=top_cats['Budget'],
-                name='Budget',
+            fig_bar = ui_components.themed_comparison_bar(
+                top_cats['Category'].tolist(),
+                [
+                    {'name': 'Budget', 'values': top_cats['Budget'].tolist()},
+                    {'name': 'Actual', 'values': top_cats['Actual'].tolist()},
+                ],
                 orientation='h',
-                marker=dict(color='#94A3B8')
-            ))
-            fig_bar.add_trace(go.Bar(
-                y=top_cats['Category'],
-                x=top_cats['Actual'],
-                name='Actual',
-                orientation='h',
-                marker=dict(color='#2563EB')
-            ))
-            fig_bar.update_layout(
-                barmode='group',
-                margin=dict(t=20, b=20, l=20, r=20),
                 height=360,
-                xaxis_tickformat=',',
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                legend_horizontal=True,
             )
             st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -754,16 +702,16 @@ if reconciled_data:
 
         st.subheader("Top 10 Largest Cost Drivers Across Hotel")
         top_10 = top_items.head(10).sort_values(by="Total_Amount", ascending=True)
-        fig_cost = px.bar(
+        fig_cost = ui_components.themed_bar(
             top_10,
             x="Total_Amount",
             y="Item_Name",
             color="Category",
             orientation="h",
             labels={"Total_Amount": "Amount (IDR)", "Item_Name": "Expense Item / Vendor"},
-            color_discrete_sequence=px.colors.qualitative.Safe
+            height=400,
+            value_tickformat=',',
         )
-        fig_cost.update_layout(height=400, margin=dict(t=20, b=20, l=20, r=20), xaxis_tickformat=',')
         st.plotly_chart(fig_cost, use_container_width=True)
 
     # ==========================================
@@ -808,15 +756,12 @@ if reconciled_data:
             total_orders_count = filtered_items['Order_Count'].sum()
             unique_items_cnt = len(filtered_items)
 
-            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-            with kpi1:
-                st.metric("Total Spend", format_idr(total_items_spend))
-            with kpi2:
-                st.metric("Total Units / Quantities", f"{total_items_qty:,.0f} units")
-            with kpi3:
-                st.metric("Total Repeated Orders", f"{total_orders_count} deliveries")
-            with kpi4:
-                st.metric("Unique Items Tracked", f"{unique_items_cnt} items")
+            ui_components.render_kpi_row([
+                {'label': 'TOTAL SPEND', 'value': format_idr(total_items_spend), 'delta': None},
+                {'label': 'TOTAL UNITS / QUANTITIES', 'value': f"{total_items_qty:,.0f} units", 'delta': None},
+                {'label': 'TOTAL REPEATED ORDERS', 'value': str(total_orders_count), 'delta': 'deliveries', 'delta_tone': 'neutral'},
+                {'label': 'UNIQUE ITEMS TRACKED', 'value': str(unique_items_cnt), 'delta': 'items', 'delta_tone': 'neutral'},
+            ])
 
             st.markdown("<br>", unsafe_allow_html=True)
 
@@ -885,27 +830,24 @@ if reconciled_data:
                     item_tot_cost = item_trxs['Amount'].sum()
                     item_avg_cost = item_trxs['Unit_Price'].mean()
 
-                    stat1, stat2, stat3, stat4 = st.columns(4)
-                    with stat1:
-                        st.metric(f"Total {selected_item_name}", f"{item_tot_qty:,.0f} {item_unit}")
-                    with stat2:
-                        st.metric("Total Month Spend", format_idr(item_tot_cost))
-                    with stat3:
-                        st.metric("Avg Unit Price", format_idr(item_avg_cost))
-                    with stat4:
-                        st.metric("Total Deliveries / Vouchers", f"{len(item_trxs)} times")
+                    ui_components.render_kpi_row([
+                        {'label': f'TOTAL {selected_item_name.upper()}', 'value': f"{item_tot_qty:,.0f} {item_unit}", 'delta': None},
+                        {'label': 'TOTAL MONTH SPEND', 'value': format_idr(item_tot_cost), 'delta': None},
+                        {'label': 'AVG UNIT PRICE', 'value': format_idr(item_avg_cost), 'delta': None},
+                        {'label': 'TOTAL DELIVERIES / VOUCHERS', 'value': str(len(item_trxs)), 'delta': 'times', 'delta_tone': 'neutral'},
+                    ])
 
                     # Timeline Chart of Deliveries
-                    fig_timeline = px.bar(
+                    fig_timeline = ui_components.themed_bar(
                         item_trxs,
                         x='Date',
                         y='Qty',
                         hover_data=['Amount', 'Voucher_Ref', 'Unit_Price'],
                         title=f"Delivery Timeline for {selected_item_name} ({item_unit})",
                         labels={'Qty': f"Quantity Delivered ({item_unit})", 'Date': "Order / Issuing Date"},
-                        color_discrete_sequence=['#2563EB']
+                        height=280,
+                        margin_top=35,
                     )
-                    fig_timeline.update_layout(height=280, margin=dict(t=35, b=20, l=20, r=20))
                     st.plotly_chart(fig_timeline, use_container_width=True)
 
                     # Detailed Voucher Table
@@ -1105,38 +1047,28 @@ if reconciled_data:
                     mom_df = mom_df.sort_values(by="August_Actual", ascending=False)
 
                     # MoM KPI overview
-                    m1, m2, m3 = st.columns(3)
-                    with m1:
-                        st.metric(mom_current_name + " Total", format_idr(cur_rec['metrics']['total_spent']))
-                    with m2:
-                        july_total = j_rec['metrics']['total_spent']
-                        st.metric(mom_previous_name + " Total", format_idr(july_total))
-                    with m3:
-                        net_mom = cur_rec['metrics']['total_spent'] - july_total
-                        net_mom_pct = (net_mom / july_total * 100.0) if july_total > 0 else 0
-                        st.metric("MoM Spending Shift", format_idr(net_mom), delta=f"{net_mom_pct:+.1f}%", delta_color="inverse")
+                    july_total = j_rec['metrics']['total_spent']
+                    net_mom = cur_rec['metrics']['total_spent'] - july_total
+                    net_mom_pct = (net_mom / july_total * 100.0) if july_total > 0 else 0
+                    ui_components.render_kpi_row([
+                        {'label': (mom_current_name + ' Total').upper(), 'value': format_idr(cur_rec['metrics']['total_spent']), 'delta': None},
+                        {'label': (mom_previous_name + ' Total').upper(), 'value': format_idr(july_total), 'delta': None},
+                        {'label': 'MOM SPENDING SHIFT', 'value': format_idr(net_mom),
+                         'delta': f"{net_mom_pct:+.1f}% vs previous month",
+                         'delta_tone': 'neg' if net_mom > 0 else 'pos'},
+                    ])
 
                     # MoM Comparison Bar Chart
                     st.markdown("#### Top Categories Comparison")
                     mom_top = mom_df.head(8)
-                    fig_mom = go.Figure()
-                    fig_mom.add_trace(go.Bar(
-                        x=mom_top['Category'],
-                        y=mom_top['July_Actual'],
-                        name=mom_previous_name,
-                        marker=dict(color='#94A3B8')
-                    ))
-                    fig_mom.add_trace(go.Bar(
-                        x=mom_top['Category'],
-                        y=mom_top['August_Actual'],
-                        name=mom_current_name,
-                        marker=dict(color='#2563EB')
-                    ))
-                    fig_mom.update_layout(
-                        barmode='group',
+                    fig_mom = ui_components.themed_comparison_bar(
+                        mom_top['Category'].tolist(),
+                        [
+                            {'name': mom_previous_name, 'values': mom_top['July_Actual'].tolist()},
+                            {'name': mom_current_name, 'values': mom_top['August_Actual'].tolist()},
+                        ],
+                        orientation='v',
                         height=380,
-                        margin=dict(t=20, b=20, l=20, r=20),
-                        yaxis_tickformat=','
                     )
                     st.plotly_chart(fig_mom, use_container_width=True)
 
