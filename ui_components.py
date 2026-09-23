@@ -64,6 +64,11 @@ def render_kpi_row(items: Sequence[Dict[str, Any]], num_columns: Optional[int] =
 # Charts (theme-adaptive palette; never pass explicit hex colors here)
 # ======================================================================
 
+def get_plotly_template() -> str:
+    mode = st.session_state.get("theme_mode", "dark")
+    return "plotly_dark" if mode == "dark" else "plotly_white"
+
+
 def themed_donut(
     df: pd.DataFrame,
     *,
@@ -76,7 +81,14 @@ def themed_donut(
     """Category donut chart using the themed palette."""
     fig = px.pie(df, names=names, values=values, hole=hole, color=names)
     fig.update_traces(textposition="auto", textinfo="percent+label")
-    fig.update_layout(margin=CHART_MARGINS, height=height, showlegend=showlegend)
+    fig.update_layout(
+        template=get_plotly_template(),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=CHART_MARGINS,
+        height=height,
+        showlegend=showlegend,
+    )
     return fig
 
 
@@ -98,10 +110,6 @@ def themed_bar(
 ):
     """
     Single-axes bar chart (vertical or horizontal) using the themed palette.
-
-    The value-axis title/tickformat are applied to the axis that holds the
-    numbers for the chosen orientation. With color=None the chart is a single
-    themed trace; with color=<column> each group gets a themed palette entry.
     """
     fig = px.bar(
         df,
@@ -123,7 +131,13 @@ def themed_bar(
         fig.update_layout(**{value_axis: axis_kwargs})
     if showlegend is not None:
         fig.update_layout(showlegend=showlegend)
-    fig.update_layout(margin=dict(CHART_MARGINS, t=margin_top), height=height)
+    fig.update_layout(
+        template=get_plotly_template(),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(CHART_MARGINS, t=margin_top),
+        height=height,
+    )
     return fig
 
 
@@ -138,12 +152,6 @@ def themed_comparison_bar(
 ):
     """
     Grouped comparison bars (e.g. Budget vs Actual, Month vs Month).
-
-    categories: sequence of category labels.
-    series:     list of {'name': str, 'values': sequence} dicts, one per group.
-
-    Built via plotly express on a long-form frame so each series receives a
-    themed sentinel color (adaptive) in palette order.
     """
     cat_col, val_col, key_col = "Category", "Value", "Series"
     long_df = pd.DataFrame(
@@ -163,6 +171,9 @@ def themed_comparison_bar(
     )
     value_axis = "yaxis" if orientation == "v" else "xaxis"
     fig.update_layout(
+        template=get_plotly_template(),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         margin=CHART_MARGINS,
         height=height,
         **({value_axis: {"tickformat": value_tickformat}} if value_tickformat else {}),

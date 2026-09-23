@@ -34,138 +34,255 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS styling for modern executive appearance
-st.markdown("""
-<style>
-    /* Clean typography & headers */
-    .main-header {
-        font-size: 2.1rem;
-        font-weight: 750;
-        letter-spacing: -0.025em;
-        color: var(--text-color, #1e293b);
-        margin-bottom: 0.25rem;
-        line-height: 1.25;
-    }
-    .sub-header {
-        font-size: 0.96rem;
-        font-weight: 450;
-        color: var(--text-color, #475569);
-        opacity: 0.78;
-        margin-bottom: 1.5rem;
-    }
+# Theme State (defaults to Dark Mode as requested)
+if "theme_mode" not in st.session_state:
+    st.session_state["theme_mode"] = "dark"
 
-    /* Balanced, theme-adaptive Metric Cards */
-    .metric-card {
-        background-color: var(--secondary-background-color, rgba(128, 128, 128, 0.06));
-        border: 1px solid rgba(128, 128, 128, 0.2);
-        border-radius: 12px;
-        padding: 1.1rem 1.25rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-        color: var(--text-color, #0f172a);
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        min-height: 110px;
-        transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
-    }
-    .metric-card:hover {
-        border-color: rgba(37, 99, 235, 0.5);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-        transform: translateY(-1px);
-    }
-    .metric-card .metric-label {
-        font-size: 0.76rem;
-        font-weight: 650;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        color: var(--text-color, #334155);
-        opacity: 0.75;
-        margin-bottom: 0.35rem;
-    }
-    .metric-card .metric-value {
-        font-size: 1.65rem;
-        font-weight: 750;
-        color: var(--text-color, #0f172a);
-        letter-spacing: -0.02em;
-        line-height: 1.2;
-    }
-    .metric-card .metric-delta {
-        font-size: 0.82rem;
-        font-weight: 550;
-        margin-top: 0.4rem;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-    .metric-card .metric-delta.delta-pos {
-        color: #16a34a;
-    }
-    .metric-card .metric-delta.delta-neg {
-        color: #dc2626;
-    }
-    .metric-card .metric-delta.delta-neutral {
-        color: var(--text-color, #64748b);
-        opacity: 0.7;
-    }
+# Sidebar Branding & Theme Mode Choice
+st.sidebar.image("https://img.icons8.com/color/96/hotel-star.png", width=64)
+st.sidebar.title("Santika Depok")
+st.sidebar.markdown("**Room Division & Housekeeping**")
 
-    /* Dark theme specific enhancements */
-    @media (prefers-color-scheme: dark) {
+theme_choice = st.sidebar.radio(
+    "Theme Appearance",
+    ["🌙 Dark Mode", "☀️ Light Mode"],
+    index=0 if st.session_state["theme_mode"] == "dark" else 1,
+    horizontal=True,
+    key="theme_mode_selector"
+)
+st.session_state["theme_mode"] = "dark" if "Dark" in theme_choice else "light"
+is_dark = st.session_state["theme_mode"] == "dark"
+
+if is_dark:
+    st.markdown("""
+    <style>
+        :root {
+            --bg-main: #0B0F19;
+            --bg-card: #151C2C;
+            --bg-card-hover: #1A2338;
+            --bg-sidebar: #080D1A;
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+            --border-subtle: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(59, 130, 246, 0.5);
+            --accent: #3B82F6;
+            --delta-pos: #34D399;
+            --delta-neg: #F87171;
+        }
+        .stApp {
+            background-color: var(--bg-main) !important;
+            color: var(--text-main) !important;
+        }
+        section[data-testid="stSidebar"] {
+            background-color: var(--bg-sidebar) !important;
+            border-right: 1px solid var(--border-subtle) !important;
+        }
+        .main-header {
+            font-size: 2.1rem;
+            font-weight: 750;
+            letter-spacing: -0.025em;
+            color: #FFFFFF !important;
+            margin-bottom: 0.25rem;
+            line-height: 1.25;
+        }
+        .sub-header {
+            font-size: 0.96rem;
+            font-weight: 450;
+            color: #94A3B8 !important;
+            margin-bottom: 1.5rem;
+        }
         .metric-card {
-            border-color: rgba(255, 255, 255, 0.12);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            background-color: var(--bg-card) !important;
+            border: 1px solid var(--border-subtle) !important;
+            border-radius: 12px;
+            padding: 1.1rem 1.25rem;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+            color: var(--text-main) !important;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 110px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
         }
         .metric-card:hover {
-            border-color: rgba(96, 165, 250, 0.5);
+            border-color: var(--border-hover) !important;
+            box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5) !important;
+            transform: translateY(-2px);
+        }
+        .metric-card .metric-label {
+            font-size: 0.76rem;
+            font-weight: 650;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: #94A3B8 !important;
+            margin-bottom: 0.35rem;
+        }
+        .metric-card .metric-value {
+            font-size: 1.65rem;
+            font-weight: 750;
+            color: #FFFFFF !important;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+        }
+        .metric-card .metric-delta {
+            font-size: 0.82rem;
+            font-weight: 550;
+            margin-top: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
         .metric-card .metric-delta.delta-pos {
-            color: #4ade80 !important;
+            color: var(--delta-pos) !important;
         }
         .metric-card .metric-delta.delta-neg {
-            color: #f87171 !important;
+            color: var(--delta-neg) !important;
         }
-    }
-    [data-theme="dark"] .metric-card,
-    .stApp[data-theme="dark"] .metric-card {
-        border-color: rgba(255, 255, 255, 0.12) !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-    }
-    [data-theme="dark"] .metric-card:hover,
-    .stApp[data-theme="dark"] .metric-card:hover {
-        border-color: rgba(96, 165, 250, 0.5) !important;
-    }
-    [data-theme="dark"] .metric-card .metric-delta.delta-pos,
-    .stApp[data-theme="dark"] .metric-card .metric-delta.delta-pos {
-        color: #4ade80 !important;
-    }
-    [data-theme="dark"] .metric-card .metric-delta.delta-neg,
-    .stApp[data-theme="dark"] .metric-card .metric-delta.delta-neg {
-        color: #f87171 !important;
-    }
-
-    /* Polished tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 6px;
-        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 8px 16px;
-        border-radius: 8px 8px 0 0;
-        font-weight: 550;
-        font-size: 0.92rem;
-        color: var(--text-color);
-        opacity: 0.75;
-        transition: all 0.2s ease;
-    }
-    .stTabs [data-baseweb="tab"]:hover {
-        opacity: 1;
-        background-color: rgba(128, 128, 128, 0.05);
-    }
-    .stTabs [aria-selected="true"] {
-        opacity: 1 !important;
-        font-weight: 650 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+        .metric-card .metric-delta.delta-neutral {
+            color: #94A3B8 !important;
+        }
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 6px;
+            border-bottom: 1px solid var(--border-subtle) !important;
+        }
+        .stTabs [data-baseweb="tab"] {
+            padding: 8px 16px;
+            border-radius: 8px 8px 0 0;
+            font-weight: 550;
+            font-size: 0.92rem;
+            color: #94A3B8 !important;
+            transition: all 0.2s ease;
+        }
+        .stTabs [data-baseweb="tab"]:hover {
+            color: #FFFFFF !important;
+            background-color: rgba(255, 255, 255, 0.04);
+        }
+        .stTabs [aria-selected="true"] {
+            color: #60A5FA !important;
+            border-bottom: 2px solid #3B82F6 !important;
+            font-weight: 650 !important;
+        }
+        [data-testid="stDataFrame"] {
+            border: 1px solid var(--border-subtle) !important;
+            border-radius: 8px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <style>
+        :root {
+            --bg-main: #F8FAFC;
+            --bg-card: #FFFFFF;
+            --bg-card-hover: #F1F5F9;
+            --bg-sidebar: #FFFFFF;
+            --text-main: #0F172A;
+            --text-muted: #475569;
+            --border-subtle: #E2E8F0;
+            --border-hover: rgba(37, 99, 235, 0.45);
+            --accent: #2563EB;
+            --delta-pos: #15803D;
+            --delta-neg: #DC2626;
+        }
+        .stApp {
+            background-color: var(--bg-main) !important;
+            color: var(--text-main) !important;
+        }
+        section[data-testid="stSidebar"] {
+            background-color: var(--bg-sidebar) !important;
+            border-right: 1px solid var(--border-subtle) !important;
+        }
+        .main-header {
+            font-size: 2.1rem;
+            font-weight: 750;
+            letter-spacing: -0.025em;
+            color: #0F172A !important;
+            margin-bottom: 0.25rem;
+            line-height: 1.25;
+        }
+        .sub-header {
+            font-size: 0.96rem;
+            font-weight: 450;
+            color: #475569 !important;
+            margin-bottom: 1.5rem;
+        }
+        .metric-card {
+            background-color: var(--bg-card) !important;
+            border: 1px solid var(--border-subtle) !important;
+            border-radius: 12px;
+            padding: 1.1rem 1.25rem;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+            color: var(--text-main) !important;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 110px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+        }
+        .metric-card:hover {
+            border-color: var(--border-hover) !important;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08) !important;
+            transform: translateY(-2px);
+        }
+        .metric-card .metric-label {
+            font-size: 0.76rem;
+            font-weight: 650;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: #475569 !important;
+            margin-bottom: 0.35rem;
+        }
+        .metric-card .metric-value {
+            font-size: 1.65rem;
+            font-weight: 750;
+            color: #0F172A !important;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+        }
+        .metric-card .metric-delta {
+            font-size: 0.82rem;
+            font-weight: 550;
+            margin-top: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .metric-card .metric-delta.delta-pos {
+            color: var(--delta-pos) !important;
+        }
+        .metric-card .metric-delta.delta-neg {
+            color: var(--delta-neg) !important;
+        }
+        .metric-card .metric-delta.delta-neutral {
+            color: #64748B !important;
+        }
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 6px;
+            border-bottom: 1px solid var(--border-subtle) !important;
+        }
+        .stTabs [data-baseweb="tab"] {
+            padding: 8px 16px;
+            border-radius: 8px 8px 0 0;
+            font-weight: 550;
+            font-size: 0.92rem;
+            color: #475569 !important;
+            transition: all 0.2s ease;
+        }
+        .stTabs [data-baseweb="tab"]:hover {
+            color: #0F172A !important;
+            background-color: rgba(0, 0, 0, 0.03);
+        }
+        .stTabs [aria-selected="true"] {
+            color: #2563EB !important;
+            border-bottom: 2px solid #2563EB !important;
+            font-weight: 650 !important;
+        }
+        [data-testid="stDataFrame"] {
+            border: 1px solid var(--border-subtle) !important;
+            border-radius: 8px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 # Helper formatting
 def format_idr(val):
@@ -517,10 +634,6 @@ MONTH_FOLDERS = {
 has_local_folder = os.path.exists(BASE_REVIEW_DIR)
 
 # Sidebar navigation & data selection
-st.sidebar.image("https://img.icons8.com/color/96/hotel-star.png", width=64)
-st.sidebar.title("Santika Depok")
-st.sidebar.markdown("**Room Division & Housekeeping**")
-
 app_mode = st.sidebar.radio(
     "Application Mode",
     ["💰 Monthly Expense Tracker", "📦 Stock Request (SR) Separator"],
