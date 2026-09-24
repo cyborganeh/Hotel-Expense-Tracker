@@ -462,7 +462,7 @@ def render_sr_separator():
         data=excel_sr_bytes,
         file_name=f"Separated_SR_{sr_report_title.replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+        width="stretch",
         type="primary"
     )
 
@@ -511,7 +511,7 @@ def render_sr_separator():
         with col_ch1:
             st.markdown("#### Spending Share by Category")
             fig_pie = ui_components.themed_donut(cat_sum, names='Category', values='Total_Amount')
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
 
         with col_ch2:
             st.markdown("#### Top 10 Cost Drivers (All SR Items)")
@@ -526,14 +526,14 @@ def render_sr_separator():
                 value_tickformat=',',
                 showlegend=False,
             )
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width="stretch")
 
         st.markdown("#### Category Breakdown Summary")
         disp_cat = cat_sum.copy()
         disp_cat['Total_Qty'] = disp_cat['Total_Qty'].apply(lambda x: f"{x:,.0f}")
         disp_cat['Total_Amount'] = disp_cat['Total_Amount'].apply(format_idr)
         disp_cat['Pct_Of_Total'] = disp_cat['Pct_Of_Total'].apply(lambda x: f"{x:.1f}%")
-        st.dataframe(disp_cat, use_container_width=True, hide_index=True)
+        st.dataframe(disp_cat, width="stretch", hide_index=True)
 
     # Helper function for rendering a category tab
     def render_category_view(category_name: str, emoji: str):
@@ -556,14 +556,14 @@ def render_sr_separator():
         disp_items['Total_Qty'] = disp_items['Total_Qty'].apply(lambda x: f"{x:,.0f}")
         disp_items['Avg_Cost'] = disp_items['Avg_Cost'].apply(format_idr)
         disp_items['Total_Amount'] = disp_items['Total_Amount'].apply(format_idr)
-        st.dataframe(disp_items, use_container_width=True, hide_index=True)
+        st.dataframe(disp_items, width="stretch", hide_index=True)
 
         with st.expander(f"📄 View Chronological Order & Issuing Log ({len(c_trxs)} records)", expanded=False):
             disp_trxs = c_trxs[['Date', 'SR_Number', 'Item_Code', 'Item_Name', 'Qty', 'Unit', 'Cost', 'Total', 'Requested_By']].copy()
             disp_trxs['Qty'] = disp_trxs['Qty'].apply(lambda x: f"{x:,.0f}")
             disp_trxs['Cost'] = disp_trxs['Cost'].apply(format_idr)
             disp_trxs['Total'] = disp_trxs['Total'].apply(format_idr)
-            st.dataframe(disp_trxs, use_container_width=True, hide_index=True)
+            st.dataframe(disp_trxs, width="stretch", hide_index=True)
 
     with tab_gs:
         render_category_view('Guest Supplies', '🛎️')
@@ -599,7 +599,7 @@ def render_sr_separator():
         disp_all = filtered[['Date', 'SR_Number', 'Category', 'Item_Code', 'Item_Name', 'Qty', 'Unit', 'Cost', 'Total', 'Requested_By']].copy()
         disp_all['Cost'] = disp_all['Cost'].apply(format_idr)
         disp_all['Total'] = disp_all['Total'].apply(format_idr)
-        st.dataframe(disp_all, use_container_width=True, hide_index=True)
+        st.dataframe(disp_all, width="stretch", hide_index=True)
 
         csv_bytes = filtered.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Filtered Log (CSV)", csv_bytes, "Stock_Requests_Filtered.csv", "text/csv")
@@ -696,7 +696,7 @@ elif data_source == "Upload Custom Excel Files":
             if c2.button("❌", key=f"del_{m_key}"):
                 del st.session_state.uploaded_months[m_key]
                 st.rerun()
-        if st.sidebar.button("🗑️ Clear All Loaded Months", type="secondary", use_container_width=True):
+        if st.sidebar.button("🗑️ Clear All Loaded Months", type="secondary", width="stretch"):
             st.session_state.uploaded_months = {}
             st.rerun()
         st.sidebar.divider()
@@ -709,7 +709,7 @@ elif data_source == "Upload Custom Excel Files":
     is_file = st.sidebar.file_uploader("2. Income Statement Dept (MTD)", type=["xlsx"], key=f"is_{st.session_state.upload_counter}")
     cons_file = st.sidebar.file_uploader("3. Consumption Report", type=["xlsx"], key=f"cons_{st.session_state.upload_counter}")
 
-    if st.sidebar.button("➕ Add This Month to Dashboard", type="primary", use_container_width=True):
+    if st.sidebar.button("➕ Add This Month to Dashboard", type="primary", width="stretch"):
         if not dtb_file:
             st.sidebar.error("Detail Trial Balance (DTB) file is required.")
         elif selected_month_label in st.session_state.uploaded_months:
@@ -799,7 +799,7 @@ if reconciled_data:
         data=excel_bytes,
         file_name=f"Separated_Expenses_{selected_month_name.replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+        width="stretch",
         type="primary"
     )
 
@@ -846,7 +846,7 @@ if reconciled_data:
             fig_pie = ui_components.themed_donut(
                 cat_df, values="Actual", names="Category", height=360, showlegend=False
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
 
         with col_right:
             st.subheader("Budget vs. Actual (Top 8 Categories)")
@@ -861,7 +861,7 @@ if reconciled_data:
                 height=360,
                 legend_horizontal=True,
             )
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width="stretch")
 
         st.divider()
 
@@ -877,7 +877,7 @@ if reconciled_data:
             height=400,
             value_tickformat=',',
         )
-        st.plotly_chart(fig_cost, use_container_width=True)
+        st.plotly_chart(fig_cost, width="stretch")
 
     # ==========================================
     # TAB: ITEM CONSUMPTION & REPEATED ORDERS
@@ -955,7 +955,7 @@ if reconciled_data:
 
             st.dataframe(
                 table_view,
-                use_container_width=True,
+                width="stretch",
                 height=380,
                 column_config={
                     "Category": st.column_config.TextColumn("Category", width="medium"),
@@ -1013,14 +1013,14 @@ if reconciled_data:
                         height=280,
                         margin_top=35,
                     )
-                    st.plotly_chart(fig_timeline, use_container_width=True)
+                    st.plotly_chart(fig_timeline, width="stretch")
 
                     # Detailed Voucher Table
                     st.markdown(f"**Individual Order Vouchers for {selected_item_name}:**")
                     voucher_view = item_trxs[['Date', 'Voucher_Ref', 'Qty', 'Unit', 'Unit_Price', 'Amount', 'JRNL', 'Raw_Description']].copy()
                     voucher_view['Unit_Price'] = voucher_view['Unit_Price'].apply(format_idr)
                     voucher_view['Amount'] = voucher_view['Amount'].apply(format_idr)
-                    st.dataframe(voucher_view, use_container_width=True)
+                    st.dataframe(voucher_view, width="stretch")
 
             # Download Item Summary CSV
             item_csv = filtered_items.to_csv(index=False).encode('utf-8')
@@ -1086,7 +1086,7 @@ if reconciled_data:
 
         st.dataframe(
             display_df,
-            use_container_width=True,
+            width="stretch",
             height=480,
             column_config={
                 "Date": st.column_config.TextColumn("Date", width="small"),
@@ -1140,7 +1140,7 @@ if reconciled_data:
 
         st.dataframe(
             var_display,
-            use_container_width=True,
+            width="stretch",
             height=450,
             column_config={
                 "Category": st.column_config.TextColumn("Expense Category", width="large"),
@@ -1235,7 +1235,7 @@ if reconciled_data:
                         orientation='v',
                         height=380,
                     )
-                    st.plotly_chart(fig_mom, use_container_width=True)
+                    st.plotly_chart(fig_mom, width="stretch")
 
                     # MoM Table
                     mom_display = mom_df.copy()
@@ -1246,7 +1246,7 @@ if reconciled_data:
 
                     st.dataframe(
                         mom_display,
-                        use_container_width=True,
+                        width="stretch",
                         height=350,
                         column_config={
                             "Category": st.column_config.TextColumn("Expense Category", width="large"),
