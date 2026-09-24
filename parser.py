@@ -110,6 +110,9 @@ def find_month_files(month_dir: str) -> Dict[str, Optional[str]]:
         'laundry_dropngo': None,
         'bisrev': None,
     }
+
+    if not month_dir or not os.path.isdir(month_dir):
+        return files
     
     search_paths = [month_dir]
     # Check subdirectories like 'Income Statement Dept HSD Agustus 2026' or 'Room Division Departement'
