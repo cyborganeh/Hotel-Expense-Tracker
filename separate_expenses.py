@@ -79,17 +79,37 @@ def process_month(input_dir: str, output_path: str = None, month_label: str = No
     return True
 
 
+def get_default_review_dir() -> str:
+    env_path = os.environ.get("HOTEL_DATA_DIR")
+    if env_path:
+        return env_path
+
+    home_dir = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home_dir, "Documents", "Business Review"),
+        os.path.join(home_dir, "Business Review"),
+        os.path.join("C:\\", "Users", os.path.basename(home_dir), "Documents", "Business Review"),
+        os.path.join("C:\\", "Business Review"),
+    ]
+
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+
+    return os.path.join(home_dir, "Documents", "Business Review")
+
+
 def main():
     arg_parser = argparse.ArgumentParser(description="Hotel Santika Depok - Expense Separator CLI")
-    arg_parser.add_argument("--input", "-i", type=str, help="Path to month folder (e.g. /home/rzl/Documents/Business Review/8.AGUSTUS)")
+    arg_parser.add_argument("--input", "-i", type=str, help="Path to month folder (e.g. C:/Business Review/8.AGUSTUS)")
     arg_parser.add_argument("--output", "-o", type=str, help="Output Excel filename (.xlsx)")
     arg_parser.add_argument("--month", "-m", type=str, help="Month label (e.g. 'Agustus 2026')")
-    arg_parser.add_argument("--all", action="store_true", help="Process all available months in Business Review folder")
+    arg_parser.add_argument("--all", action="store_true", help="Process all available months in the local Business Review folder")
 
     args = arg_parser.parse_args()
 
     if args.all:
-        base_review = "/home/rzl/Documents/Business Review"
+        base_review = get_default_review_dir()
         months = ["8.AGUSTUS", "7.JULY", "6. JUN"]
         for m in months:
             m_path = os.path.join(base_review, m)
@@ -98,8 +118,7 @@ def main():
     elif args.input:
         process_month(args.input, args.output, args.month)
     else:
-        # Default to August if present
-        default_dir = "/home/rzl/Documents/Business Review/8.AGUSTUS"
+        default_dir = os.path.join(get_default_review_dir(), "8.AGUSTUS")
         if os.path.exists(default_dir):
             process_month(default_dir)
         else:

@@ -26,6 +26,29 @@ importlib.reload(exporter)
 importlib.reload(sr_parser)
 importlib.reload(ui_components)
 
+
+def get_default_data_dir() -> str:
+    """Return a portable default data directory for local month folders."""
+    env_path = os.environ.get("HOTEL_DATA_DIR")
+    if env_path:
+        return env_path
+
+    candidates = []
+    home_dir = os.path.expanduser("~")
+    candidates.extend([
+        os.path.join(home_dir, "Documents", "Business Review"),
+        os.path.join(home_dir, "Business Review"),
+        os.path.join("C:\\", "Users", os.path.basename(home_dir), "Documents", "Business Review"),
+        os.path.join("C:\\", "Business Review"),
+    ])
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+
+    return os.path.join(home_dir, "Documents", "Business Review")
+
+
 # Configure Streamlit page
 st.set_page_config(
     page_title="Hotel Spending Tracker & Separator",
@@ -296,6 +319,102 @@ def format_pct(val):
     return f"{val:+.1f}%"
 
 
+def show_validation_banner(messages: List[str], level: str = "warning"):
+    if not messages:
+        return
+    if level == "error":
+        st.error("### Data validation issues")
+    else:
+        st.warning("### Data validation issues")
+    for message in messages:
+        st.caption(f"• {message}")
+
+
+@st.cache_data(show_spinner=False)
+def cached_reconcile_month(dtb_path: str, is_path: Optional[str], cons_path: Optional[str], month_label: str) -> dict:
+    dtb_df = parser.parse_detail_trial_balance(dtb_path)
+    is_df = parser.parse_income_statement(is_path) if is_path and os.path.exists(is_path) else pd.DataFrame()
+    cons_df = parser.parse_consumption_report(cons_path) if cons_path and os.path.exists(cons_path) else pd.DataFrame()
+    return matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+
+
+def discover_month_folders(base_dir: str) -> Dict[str, str]:
+    if not base_dir or not os.path.exists(base_dir):
+        return {}
+
+    found: Dict[str, str] = {}
+    for entry in sorted(os.listdir(base_dir)):
+        full_path = os.path.join(base_dir, entry)
+        if not os.path.isdir(full_path):
+            continue
+        label = parser.infer_month_label(entry, default=entry)
+        found[label] = full_path
+    return found
+
+
+def build_demo_reconciled_data(month_name: str = "Demo August 2026") -> dict:
+    expense_rows = [
+        {"Date": "2026-08-01", "Category": "Guest Supplies", "Item_Name": "Cleo 330ml", "Partner_Vendor": "Cleo", "Qty": 110, "Unit": "pcs", "Unit_Price": 5000, "Amount": 550000, "Voucher_Ref": "DEMO-001", "JRNL": "GL", "Raw_Description": "Cleo mineral water", "Month": month_name},
+        {"Date": "2026-08-02", "Category": "Cleaning Supplies", "Item_Name": "Trash Bag 100L", "Partner_Vendor": "Plasticindo", "Qty": 40, "Unit": "pcs", "Unit_Price": 18000, "Amount": 720000, "Voucher_Ref": "DEMO-002", "JRNL": "GL", "Raw_Description": "Garbage bags", "Month": month_name},
+        {"Date": "2026-08-03", "Category": "Paper Supplies", "Item_Name": "Toilet Tissue", "Partner_Vendor": "Paper Mart", "Qty": 65, "Unit": "roll", "Unit_Price": 21000, "Amount": 1365000, "Voucher_Ref": "DEMO-003", "JRNL": "GL", "Raw_Description": "Toilet tissue roll", "Month": month_name},
+        {"Date": "2026-08-05", "Category": "Media & Utilities", "Item_Name": "Internet Maxindo", "Partner_Vendor": "Maxindo", "Qty": 1, "Unit": "contract", "Unit_Price": 1650000, "Amount": 1650000, "Voucher_Ref": "DEMO-004", "JRNL": "GL", "Raw_Description": "Internet service", "Month": month_name},
+        {"Date": "2026-08-07", "Category": "Outsourcing & Laundry", "Item_Name": "Laundry Service", "Partner_Vendor": "Bonvivo", "Qty": 24, "Unit": "lot", "Unit_Price": 145000, "Amount": 3480000, "Voucher_Ref": "DEMO-005", "JRNL": "GL", "Raw_Description": "Laundry outsourcing", "Month": month_name},
+        {"Date": "2026-08-09", "Category": "Payroll & SC", "Item_Name": "Daily Worker Allowance", "Partner_Vendor": "HRD", "Qty": 1, "Unit": "payroll", "Unit_Price": 2500000, "Amount": 2500000, "Voucher_Ref": "DEMO-006", "JRNL": "GL", "Raw_Description": "Housekeeping payroll", "Month": month_name},
+    ]
+    tx_df = pd.DataFrame(expense_rows)
+    tx_df['Date'] = pd.to_datetime(tx_df['Date'])
+    tx_df['Amount'] = tx_df['Amount'].astype(float)
+
+    category_summary = pd.DataFrame([
+        {"Category": "Guest Supplies", "Department": "Housekeeping", "Group": "Operational", "Actual": 550000, "Budget": 600000, "Transaction_Count": 1, "Top_Item": "Cleo 330ml"},
+        {"Category": "Cleaning Supplies", "Department": "Housekeeping", "Group": "Operational", "Actual": 720000, "Budget": 700000, "Transaction_Count": 1, "Top_Item": "Trash Bag 100L"},
+        {"Category": "Paper Supplies", "Department": "Housekeeping", "Group": "Operational", "Actual": 1365000, "Budget": 1200000, "Transaction_Count": 1, "Top_Item": "Toilet Tissue"},
+        {"Category": "Media & Utilities", "Department": "Engineering", "Group": "Utilities", "Actual": 1650000, "Budget": 1500000, "Transaction_Count": 1, "Top_Item": "Internet Maxindo"},
+        {"Category": "Outsourcing & Laundry", "Department": "Housekeeping", "Group": "Outsourcing", "Actual": 3480000, "Budget": 3000000, "Transaction_Count": 1, "Top_Item": "Laundry Service"},
+        {"Category": "Payroll & SC", "Department": "HR", "Group": "Payroll", "Actual": 2500000, "Budget": 2200000, "Transaction_Count": 1, "Top_Item": "Daily Worker Allowance"},
+    ])
+    category_summary['Variance_IDR'] = category_summary['Actual'] - category_summary['Budget']
+    category_summary['Variance_Pct'] = np.where(category_summary['Budget'] > 0, (category_summary['Variance_IDR'] / category_summary['Budget']) * 100.0, 0.0)
+    category_summary['Status'] = np.where(category_summary['Variance_IDR'] > 0, 'Over Budget', 'Under Budget')
+
+    item_summary = tx_df.groupby(['Category', 'Item_Name'], as_index=False).agg(
+        Total_Qty=('Qty', 'sum'),
+        Unit=('Unit', 'first'),
+        Avg_Unit_Price=('Unit_Price', 'mean'),
+        Total_Amount=('Amount', 'sum'),
+        Order_Count=('Amount', 'count'),
+        First_Date=('Date', 'min'),
+        Last_Date=('Date', 'max')
+    )
+    item_summary['Cat_Total'] = item_summary['Total_Amount'].sum()
+    item_summary['Pct_Of_Category'] = np.where(item_summary['Cat_Total'] > 0, (item_summary['Total_Amount'] / item_summary['Cat_Total'] * 100.0).round(2), 0.0)
+
+    total_budget = category_summary['Budget'].sum()
+    total_spent = tx_df['Amount'].sum()
+    metrics = {
+        'total_spent': float(total_spent),
+        'total_budget': float(total_budget),
+        'variance_idr': float(total_spent - total_budget),
+        'variance_pct': (float(total_spent - total_budget) / total_budget * 100.0) if total_budget > 0 else 0.0,
+        'transaction_count': len(tx_df),
+        'category_count': len(category_summary),
+        'unique_items_count': len(item_summary),
+    }
+
+    return {
+        'transactions': tx_df,
+        'category_summary': category_summary,
+        'top_cost_drivers': tx_df.groupby(['Category', 'Item_Name', 'Partner_Vendor'], as_index=False).agg(
+            Total_Amount=('Amount', 'sum'),
+            Total_Qty=('Qty', 'sum'),
+            Unit=('Unit', 'first'),
+            Trx_Count=('Amount', 'count')
+        ).sort_values(by='Total_Amount', ascending=False).reset_index(drop=True),
+        'item_summary': item_summary,
+        'metrics': metrics,
+    }
+
+
 def combine_month_datasets(month_data_dict: dict) -> Tuple[Optional[dict], str]:
     if not month_data_dict:
         return None, ""
@@ -400,7 +519,8 @@ def render_sr_separator():
     Warehouse Stock Request (SR) Separator UI.
     Extracts, categorizes, and analyzes items from Gudang Central SR PDFs.
     """
-    BASE_SR_DIR = "/home/rzl/Documents/Hotel Santika Depok/2. SR Report/SR REPORT/SR SEPTEMBER"
+    base_review_dir = get_default_data_dir()
+    BASE_SR_DIR = os.environ.get("HOTEL_SR_DIR") or os.path.join(base_review_dir, "SR REPORT")
     has_local_sr = os.path.exists(BASE_SR_DIR)
 
     st.sidebar.markdown("### 📦 SR Data Source")
@@ -626,12 +746,40 @@ def render_sr_separator():
 
 
 # Base directories for standard data
-BASE_REVIEW_DIR = os.environ.get("HOTEL_DATA_DIR", "/home/rzl/Documents/Business Review")
-MONTH_FOLDERS = {
-    "August 2026 (Agustus)": os.path.join(BASE_REVIEW_DIR, "8.AGUSTUS"),
-    "July 2026 (Juli)": os.path.join(BASE_REVIEW_DIR, "7.JULY"),
-}
+if "selected_data_dir" not in st.session_state:
+    st.session_state.selected_data_dir = get_default_data_dir()
+
+BASE_REVIEW_DIR = st.session_state.selected_data_dir
+st.session_state.selected_data_dir = os.path.normpath(BASE_REVIEW_DIR)
+
+MONTH_FOLDERS = discover_month_folders(BASE_REVIEW_DIR)
+if not MONTH_FOLDERS:
+    MONTH_FOLDERS = {
+        "August 2026 (Agustus)": os.path.join(BASE_REVIEW_DIR, "8.AGUSTUS"),
+        "July 2026 (Juli)": os.path.join(BASE_REVIEW_DIR, "7.JULY"),
+    }
 has_local_folder = os.path.exists(BASE_REVIEW_DIR)
+
+st.sidebar.markdown("### 📁 Data Folder")
+user_data_dir = st.sidebar.text_input(
+    "Folder with month data",
+    value=st.session_state.selected_data_dir,
+    help="Set the parent folder containing month folders such as 8.AGUSTUS/ and 7.JULY/."
+)
+if user_data_dir:
+    st.session_state.selected_data_dir = user_data_dir
+    BASE_REVIEW_DIR = user_data_dir
+    MONTH_FOLDERS = discover_month_folders(BASE_REVIEW_DIR)
+    if not MONTH_FOLDERS:
+        MONTH_FOLDERS = {
+            "August 2026 (Agustus)": os.path.join(BASE_REVIEW_DIR, "8.AGUSTUS"),
+            "July 2026 (Juli)": os.path.join(BASE_REVIEW_DIR, "7.JULY"),
+        }
+    has_local_folder = os.path.exists(BASE_REVIEW_DIR)
+
+if not has_local_folder:
+    st.sidebar.warning(f"No local data folder found at: {BASE_REVIEW_DIR}")
+    st.sidebar.caption("Set a valid folder with 8.AGUSTUS/ and 7.JULY/, or use demo data.")
 
 # Sidebar navigation & data selection
 app_mode = st.sidebar.radio(
@@ -641,43 +789,73 @@ app_mode = st.sidebar.radio(
 )
 st.sidebar.divider()
 
+if "demo_mode" not in st.session_state:
+    st.session_state.demo_mode = False
+
+if st.session_state.demo_mode:
+    st.sidebar.success("Demo data is active")
+    if st.sidebar.button("Reset to Local Folder Mode", type="secondary", width="stretch"):
+        st.session_state.demo_mode = False
+        st.rerun()
+else:
+    if st.sidebar.button("Load Demo Data", type="secondary", width="stretch"):
+        st.session_state.demo_mode = True
+        st.rerun()
+
 if app_mode == "📦 Stock Request (SR) Separator":
     render_sr_separator()
     st.stop()
 
 # --- Monthly Expense Tracker Mode Below ---
-data_source = st.sidebar.radio(
-    "Select Data Source",
-    ["Select Month Folder", "Upload Custom Excel Files", "Upload Multiple Months"],
-    index=0 if has_local_folder else 1
-)
+if st.session_state.demo_mode:
+    data_source = "Demo Data"
+else:
+    data_source = st.sidebar.radio(
+        "Select Data Source",
+        ["Select Month Folder", "Upload Custom Excel Files", "Upload Multiple Months"],
+        index=0 if has_local_folder else 1
+    )
 
 reconciled_data = None
-selected_month_name = parser.infer_month_label("8.AGUSTUS")  # canonical fallback label
+selected_month_name = "Demo August 2026"
 
-if data_source == "Select Month Folder":
+if data_source == "Demo Data":
+    reconciled_data = build_demo_reconciled_data()
+    selected_month_name = "Demo August 2026"
+    st.sidebar.success("Demo data loaded. This is a sample month for previewing the dashboard.")
+
+elif data_source == "Select Month Folder":
     selected_months = st.sidebar.multiselect(
         "Choose Month(s) to Load",
         options=list(MONTH_FOLDERS.keys()),
-        default=list(MONTH_FOLDERS.keys())
+        default=list(MONTH_FOLDERS.keys()) if has_local_folder else []
     )
     if selected_months:
         month_data_dict = {}
+        validation_messages = []
         for m_choice in selected_months:
             m_dir = MONTH_FOLDERS[m_choice]
             m_label = parser.infer_month_label(m_choice)
-            if os.path.exists(m_dir):
-                files = parser.find_month_files(m_dir)
-                if not files['dtb']:
-                    st.sidebar.warning(f"Detail Trial Balance not found for {m_label}; skipped.")
-                    continue
-                with st.spinner(f"Parsing {m_label}..."):
-                    dtb_df = parser.parse_detail_trial_balance(files['dtb'])
-                    is_df = parser.parse_income_statement(files['is_mtd']) if files['is_mtd'] else pd.DataFrame()
-                    cons_df = parser.parse_consumption_report(files['consumption']) if files['consumption'] else pd.DataFrame()
-                    month_data_dict[m_label] = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+            if not os.path.exists(m_dir):
+                validation_messages.append(f"Folder not found for {m_label}: {m_dir}")
+                continue
+            files = parser.find_month_files(m_dir)
+            if not files['dtb']:
+                validation_messages.append(f"Detail Trial Balance not found for {m_label}; skipped.")
+                continue
+            with st.spinner(f"Parsing {m_label}..."):
+                dtb_path = files['dtb']
+                is_path = files['is_mtd']
+                cons_path = files['consumption']
+                import tempfile
+                cached_data = cached_reconcile_month(dtb_path, is_path, cons_path, m_label)
+                month_data_dict[m_label] = cached_data
+        if validation_messages:
+            show_validation_banner(validation_messages)
         if month_data_dict:
             reconciled_data, selected_month_name = combine_month_datasets(month_data_dict)
+        else:
+            st.sidebar.warning("No valid month data could be loaded from the selected folders.")
     else:
         st.sidebar.warning("Please select at least one month folder.")
 
