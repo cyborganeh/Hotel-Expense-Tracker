@@ -12,6 +12,7 @@ import streamlit as st
 
 import ui_components
 from data.months import get_default_data_dir, discover_month_folders
+from ui.auth import require_auth, logout_button
 from ui.security import validate_data_dir
 from views.monthly_tracker import render_monthly_tracker
 from views.sr_separator import render_sr_separator
@@ -35,6 +36,12 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ---------------------------------------------------------------------------
+# Authentication gate
+# ---------------------------------------------------------------------------
+if not require_auth():
+    st.stop()
 
 # ---------------------------------------------------------------------------
 # Theme state
@@ -141,7 +148,10 @@ app_mode = st.sidebar.radio(
 )
 st.sidebar.divider()
 
-
+# ---------------------------------------------------------------------------
+# Logout
+# ---------------------------------------------------------------------------
+logout_button()
 
 # ---------------------------------------------------------------------------
 # Dispatch
