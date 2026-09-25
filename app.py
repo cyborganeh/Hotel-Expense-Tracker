@@ -555,8 +555,18 @@ def render_sr_separator():
         sr_label = st.sidebar.text_input("Report Title / Month", "Stock Request Report")
         sr_report_title = sr_label
         if uploaded_pdfs:
-            with st.spinner(f"Parsing {len(uploaded_pdfs)} SR PDF(s)..."):
-                sr_df = sr_parser.parse_multiple_sr_pdfs(uploaded_pdfs)
+            invalid_names = [
+                uploaded.name for uploaded in uploaded_pdfs
+                if ".." in uploaded.name or "/" in uploaded.name or "\\" in uploaded.name
+            ]
+            if invalid_names:
+                show_validation_banner([
+                    f"Invalid SR filename: {name}. Filenames cannot contain path separators or '..'."
+                    for name in invalid_names
+                ], level="error")
+            else:
+                with st.spinner(f"Parsing {len(uploaded_pdfs)} SR PDF(s)..."):
+                    sr_df = sr_parser.parse_multiple_sr_pdfs(uploaded_pdfs)
 
     if sr_df.empty:
         st.info("👈 Please select or upload Stock Request (SR) PDF files from the sidebar to begin.")
@@ -794,13 +804,37 @@ if "demo_mode" not in st.session_state:
 
 if st.session_state.demo_mode:
     st.sidebar.success("Demo data is active")
-    if st.sidebar.button("Reset to Local Folder Mode", type="secondary", width="stretch"):
+    if st.sidebar.button("Reset to Local Folder Mode", type="secondary", width="stretch", key="reset_demo"):
         st.session_state.demo_mode = False
         st.rerun()
 else:
-    if st.sidebar.button("Load Demo Data", type="secondary", width="stretch"):
+    if st.sidebar.button("Load Demo Data", type="secondary", width="stretch", key="load_demo"):
         st.session_state.demo_mode = True
         st.rerun()
+
+# Load Sample Data button - adds a preset demo dataset for testing
+if st.sidebar.button("Load Sample Data", type="secondary", width="stretch", key="load_sample"):
+    st.session_state.demo_mode = True
+    # Create a simple demo dataset using the existing demo builder
+    demo_data = build_demo_reconciled_data()
+    st.session_state.uploaded_months = {"Sample August 2026": demo_data}
+    st.session_state.upload_counter = 1
+    st.toast("Sample data loaded!")
+    st.rerun()
+
+# Keyboard shortcuts
+st.markdown("""
+<script>
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'r') {
+        e.preventDefault();
+        // Trigger reset by clicking the reset button if it exists
+        const resetBtn = document.querySelector('button[kind="secondary"]');
+        if (resetBtn) resetBtn.click();
+    }
+});
+</script>
+""", unsafe_allow_html=True)
 
 if app_mode == "📦 Stock Request (SR) Separator":
     render_sr_separator()
@@ -888,10 +922,19 @@ elif data_source == "Upload Custom Excel Files":
     cons_file = st.sidebar.file_uploader("3. Consumption Report", type=["xlsx"], key=f"cons_{st.session_state.upload_counter}")
 
     if st.sidebar.button("➕ Add This Month to Dashboard", type="primary", width="stretch"):
+        validation_messages = []
         if not dtb_file:
-            st.sidebar.error("Detail Trial Balance (DTB) file is required.")
-        elif selected_month_label in st.session_state.uploaded_months:
-            st.sidebar.error(f"Month label '{selected_month_label}' already exists — rename it to add another month.")
+            validation_messages.append("Detail Trial Balance (DTB) file is required.")
+        if selected_month_label in st.session_state.uploaded_months:
+            validation_messages.append(f"Month label '{selected_month_label}' already exists — rename it to add another month.")
+        
+        # Basic filename validation to prevent path traversal
+        for uploaded_file in [dtb_file, is_file, cons_file]:
+            if uploaded_file and (".." in uploaded_file.name or "/" in uploaded_file.name or "\\" in uploaded_file.name):
+                validation_messages.append(f"Invalid filename detected: {uploaded_file.name}. Filenames cannot contain path separators or '..'.")
+
+        if validation_messages:
+            show_validation_banner(validation_messages, level="error")
         else:
             with st.spinner(f"Processing {selected_month_label}..."):
                 import tempfile

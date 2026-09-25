@@ -7,12 +7,18 @@ Parses:
   4. Laundry Reports (Bonvivo, Drop N Go)
 """
 
+import logging
 import os
 import re
 import glob
 from typing import Dict, List, Any, Optional, Tuple
 import openpyxl
 import pandas as pd
+
+# Configure module-level logger
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler())
+logger.setLevel(logging.INFO)
 
 
 # Standard Account Code to Category mapping for Room Division / Housekeeping
@@ -101,6 +107,7 @@ def infer_month_label(source: str, default: str = '') -> str:
 def find_month_files(month_dir: str) -> Dict[str, Optional[str]]:
     """
     Scans a month folder (e.g., '8.AGUSTUS' or '7.JULY') and detects key Excel files.
+    Returns a dict with file paths or None if not found.
     """
     files = {
         'dtb': None,
@@ -112,8 +119,10 @@ def find_month_files(month_dir: str) -> Dict[str, Optional[str]]:
     }
 
     if not month_dir or not os.path.isdir(month_dir):
+        logger.warning(f"find_month_files: Directory not found or invalid: {month_dir}")
         return files
-    
+
+    logger.info(f"Scanning directory for Excel files: {month_dir}")
     search_paths = [month_dir]
     # Check subdirectories like 'Income Statement Dept HSD Agustus 2026' or 'Room Division Departement'
     for item in os.listdir(month_dir):
@@ -129,18 +138,29 @@ def find_month_files(month_dir: str) -> Dict[str, Optional[str]]:
             lower = fname.lower()
             if "detail trial balance" in lower:
                 files['dtb'] = f
+                logger.debug(f"Found DTB file: {fname}")
             elif "income statement dept" in lower and "(mtd)" in lower:
                 files['is_mtd'] = f
+                logger.debug(f"Found Income Statement MTD file: {fname}")
             elif "income statement dept" in lower and files['is_mtd'] is None:
                 files['is_mtd'] = f
+                logger.debug(f"Found Income Statement file: {fname}")
             elif "consumption report" in lower:
                 files['consumption'] = f
+                logger.debug(f"Found Consumption Report file: {fname}")
             elif "bonvivo" in lower:
                 files['laundry_bonvivo'] = f
+                logger.debug(f"Found Bonvivo file: {fname}")
             elif "drop n go" in lower:
                 files['laundry_dropngo'] = f
+                logger.debug(f"Found Drop N Go file: {fname}")
             elif "bisrev" in lower and "pure" not in lower:
                 files['bisrev'] = f
+                logger.debug(f"Found Bisrev file: {fname}")
+
+    # Log summary
+    found_count = sum(1 for v in files.values() if v is not None)
+    logger.info(f"find_month_files: Found {found_count} of 6 expected files in {month_dir}")
 
     return files
 
@@ -151,12 +171,17 @@ def parse_income_statement(is_path: str) -> pd.DataFrame:
     Extracts Line Item, Category Group, Actual Amount (IDR), Budget Amount (IDR),
     Variance (IDR), Variance (%), and Actual Ratio (%).
     """
-    wb = openpyxl.load_workbook(is_path, data_only=True)
-    records = []
+    logger.info(f"Parsing Income Statement: {is_path}")
     
-    target_sheets = [s for s in wb.sheetnames if 'ROOM' in s.upper() or 'LAUNDRY' in s.upper()]
-    if not target_sheets:
-        target_sheets = [wb.sheetnames[0]]
+    try:
+        wb = openpyxl.load_workbook(is_path, data_only=True)
+        target_sheets = [s for s in wb.sheetnames if 'ROOM' in s.upper() or 'LAUNDRY' in s.upper()]
+        if not target_sheets:
+            target_sheets = [wb.sheetnames[0]]
+        records = []
+    except Exception as e:
+        logger.error(f"Error loading Income Statement workbook: {e}")
+        raise
 
     for sname in target_sheets:
         ws = wb[sname]
@@ -234,74 +259,85 @@ def parse_detail_trial_balance(dtb_path: str, filter_prefix: Optional[str] = '03
     Parses '08. Detail Trial Balance HSD [Month] 2026.xlsx'.
     Extracts all individual transactions grouped by Account Code and Name.
     """
-    wb = openpyxl.load_workbook(dtb_path, data_only=True)
-    ws = wb.active
+    logger.info(f"Parsing Detail Trial Balance: {dtb_path}")
+    
+    try:
+        wb = openpyxl.load_workbook(dtb_path, data_only=True)
+        ws = wb.active
+        transactions = []
+    except Exception as e:
+        logger.error(f"Error loading Detail Trial Balance workbook: {e}")
+        raise
+        current_acct_code = None
+        current_acct_name = None
+        current_acct_full = None
 
-    transactions = []
-    current_acct_code = None
-    current_acct_name = None
-    current_acct_full = None
-
-    for row_idx, r in enumerate(ws.iter_rows(values_only=True), start=1):
-        col0 = r[0]
-        if not col0:
-            continue
-        
-        str0 = str(col0).strip()
-        
-        # Check if row is an Account Header (starts with digit code of 5+ digits)
-        acct_match = re.match(r'^(\d{5,})\s+(.*)', str0)
-        if acct_match:
-            code = acct_match.group(1)
-            name = acct_match.group(2).strip()
-            
-            if filter_prefix and not code.startswith(filter_prefix):
-                current_acct_code = None
-                current_acct_name = None
-                current_acct_full = None
+        for row_idx, r in enumerate(ws.iter_rows(values_only=True), start=1):
+            col0 = r[0]
+            if not col0:
                 continue
             
-            current_acct_code = code
-            current_acct_name = name
-            current_acct_full = str0
-            continue
+            str0 = str(col0).strip()
+            
+            # Check if row is an Account Header (starts with digit code of 5+ digits)
+            acct_match = re.match(r'^(\d{5,})\s+(.*)', str0)
+            if acct_match:
+                code = acct_match.group(1)
+                name = acct_match.group(2).strip()
+                
+                if filter_prefix and not code.startswith(filter_prefix):
+                    current_acct_code = None
+                    current_acct_name = None
+                    current_acct_full = None
+                    continue
+                
+                current_acct_code = code
+                current_acct_name = name
+                current_acct_full = str0
+                continue
 
-        # If we are inside an active account and row has a date in Col A
-        if current_acct_code and re.match(r'^\d{4}-\d{2}-\d{2}', str0):
-            # Columns in DTB:
-            # 0: Date, 1: JRNL, 2: Partner, 3: Ref, 4: Source, 5: Dept, 6: Desc, 7: Beg, 8: Debit, 9: Credit, 10: Net, 11: End
-            date_val = str0[:10]
-            jrnl = str(r[1]) if r[1] is not None else ''
-            partner = str(r[2]) if r[2] is not None else ''
-            ref = str(r[3]) if r[3] is not None else ''
-            source = str(r[4]) if r[4] is not None else ''
-            dept = str(r[5]) if r[5] is not None else ''
-            desc = str(r[6]) if r[6] is not None else ''
-            debit = float(r[8]) if r[8] is not None and isinstance(r[8], (int, float)) else 0.0
-            credit = float(r[9]) if r[9] is not None and isinstance(r[9], (int, float)) else 0.0
-            net = debit - credit
+            # If we are inside an active account and row has a date in Col A
+            if current_acct_code and re.match(r'^\d{4}-\d{2}-\d{2}', str0):
+                # Columns in DTB:
+                # 0: Date, 1: JRNL, 2: Partner, 3: Ref, 4: Source, 5: Dept, 6: Desc, 7: Beg, 8: Debit, 9: Credit, 10: Net, 11: End
+                date_val = str0[:10]
+                jrnl = str(r[1]) if r[1] is not None else ''
+                partner = str(r[2]) if r[2] is not None else ''
+                ref = str(r[3]) if r[3] is not None else ''
+                source = str(r[4]) if r[4] is not None else ''
+                dept = str(r[5]) if r[5] is not None else ''
+                desc = str(r[6]) if r[6] is not None else ''
+                debit = float(r[8]) if r[8] is not None and isinstance(r[8], (int, float)) else 0.0
+                credit = float(r[9]) if r[9] is not None and isinstance(r[9], (int, float)) else 0.0
+                net = debit - credit
 
-            # Map to friendly category
-            category = ACCOUNT_MAP.get(current_acct_code, current_acct_name)
+                # Map to friendly category
+                category = ACCOUNT_MAP.get(current_acct_code, current_acct_name)
 
-            transactions.append({
-                'Date': date_val,
-                'Account_Code': current_acct_code,
-                'Account_Name': current_acct_name,
-                'Category': category,
-                'JRNL': jrnl,
-                'Partner': partner,
-                'Ref': ref,
-                'Source': source,
-                'Department': dept,
-                'Description': desc,
-                'Debit': debit,
-                'Credit': credit,
-                'Net_Amount': net,
-                'Row_Index': row_idx
-            })
+                transactions.append({
+                    'Date': date_val,
+                    'Account_Code': current_acct_code,
+                    'Account_Name': current_acct_name,
+                    'Category': category,
+                    'JRNL': jrnl,
+                    'Partner': partner,
+                    'Ref': ref,
+                    'Source': source,
+                    'Department': dept,
+                    'Description': desc,
+                    'Debit': debit,
+                    'Credit': credit,
+                    'Net_Amount': net,
+                    'Row_Index': row_idx
+                })
 
-    return pd.DataFrame(transactions)
+        df = pd.DataFrame(transactions)
+        logger.info(f"parse_detail_trial_balance: Loaded {len(df)} transactions")
+        return df
+        
+    except Exception as e:
+        logger.error(f"Error parsing Detail Trial Balance: {e}")
+        raise
 
 
 def parse_consumption_report(cons_path: str) -> pd.DataFrame:
@@ -309,8 +345,14 @@ def parse_consumption_report(cons_path: str) -> pd.DataFrame:
     Parses '08. Consumption Report [Month] 2026.xlsx'.
     Reads both 'HK' and 'Guest Supplies' sheets to extract item-level transactions.
     """
-    wb = openpyxl.load_workbook(cons_path, data_only=True)
-    items = []
+    logger.info(f"Parsing Consumption Report: {cons_path}")
+    
+    try:
+        wb = openpyxl.load_workbook(cons_path, data_only=True)
+        items = []
+    except Exception as e:
+        logger.error(f"Error loading Consumption Report workbook: {e}")
+        raise
 
     for sname in wb.sheetnames:
         ws = wb[sname]
@@ -369,6 +411,8 @@ def parse_laundry_reports(bonvivo_path: Optional[str], dropngo_path: Optional[st
     """
     Parses Bonvivo and Drop N Go laundry report Excel files.
     """
+    logger.info(f"Parsing Laundry Reports - Bonvivo: {bonvivo_path}, Drop N Go: {dropngo_path}")
+    
     result = {
         'bonvivo': {'total': 0.0, 'items': []},
         'dropngo': {'total': 0.0, 'items': []}
@@ -384,8 +428,9 @@ def parse_laundry_reports(bonvivo_path: Optional[str], dropngo_path: Optional[st
                         for c in r:
                             if isinstance(c, (int, float)) and c > 100000:
                                 result['bonvivo']['total'] = max(result['bonvivo']['total'], float(c))
-        except Exception:
-            pass
+            logger.info(f"Bonvivo total: {result['bonvivo']['total']}")
+        except Exception as e:
+            logger.error(f"Error parsing Bonvivo: {e}")
 
     if dropngo_path and os.path.exists(dropngo_path):
         try:
@@ -397,7 +442,8 @@ def parse_laundry_reports(bonvivo_path: Optional[str], dropngo_path: Optional[st
                         for c in r:
                             if isinstance(c, (int, float)) and c > 100000:
                                 result['dropngo']['total'] = max(result['dropngo']['total'], float(c))
-        except Exception:
-            pass
+            logger.info(f"Drop N Go total: {result['dropngo']['total']}")
+        except Exception as e:
+            logger.error(f"Error parsing Drop N Go: {e}")
 
     return result

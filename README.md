@@ -54,6 +54,16 @@ To process all available months (August, July, June) in one command:
 uv run python3 separate_expenses.py --all
 ```
 
+Show the installed CLI version:
+```bash
+uv run python3 separate_expenses.py --version
+```
+
+Run automated checks:
+```bash
+uv run --extra dev python -m pytest tests/ -v
+```
+
 ---
 
 ## 📁 Project Structure

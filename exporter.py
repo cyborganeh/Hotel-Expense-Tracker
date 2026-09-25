@@ -5,10 +5,16 @@ Creates multi-tab, beautifully styled, separated Excel workbooks using openpyxl.
 
 from typing import Dict, Any, Optional
 import io
+import logging
 import pandas as pd
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+# Configure module-level logger
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler())
+logger.setLevel(logging.INFO)
 
 
 def create_separated_excel(
@@ -27,6 +33,33 @@ def create_separated_excel(
       7. Media & Utilities Breakdown
       8. Payroll & Service Charge Breakdown
     """
+    logger.info(f"Creating separated Excel for {month_name}")
+    
+    # Validate input data
+    if not reconciled_data:
+        logger.error("No reconciled data provided")
+        raise ValueError("No reconciled data provided")
+    
+    required_keys = ['transactions', 'category_summary', 'metrics']
+    for key in required_keys:
+        if key not in reconciled_data:
+            logger.error(f"Missing required key in reconciled_data: {key}")
+            raise ValueError(f"Missing required key in reconciled_data: {key}")
+    
+    logger.info(f"Creating separated Excel for {month_name}")
+    
+    # Validate input data
+    if not reconciled_data:
+        logger.error("No reconciled data provided")
+        raise ValueError("No reconciled data provided")
+    
+    required_keys = ['transactions', 'category_summary', 'metrics']
+    for key in required_keys:
+        if key not in reconciled_data:
+            logger.error(f"Missing required key in reconciled_data: {key}")
+            raise ValueError(f"Missing required key in reconciled_data: {key}")
+
+    
     wb = openpyxl.Workbook()
     # Remove default sheet
     wb.remove(wb.active)
@@ -199,7 +232,7 @@ def create_separated_excel(
         
         ws_trx.cell(r_idx, 1, row['Date']).font = regular_font
         ws_trx.cell(r_idx, 2, row['Category']).font = regular_font
-        ws_trx.cell(r_idx, 3, row['Account_Code']).font = regular_font
+        ws_trx.cell(r_idx, 3, row.get('Account_Code', '')).font = regular_font
         ws_trx.cell(r_idx, 4, row['Item_Name']).font = bold_font
         ws_trx.cell(r_idx, 5, row['Partner_Vendor']).font = regular_font
         

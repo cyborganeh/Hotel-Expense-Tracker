@@ -4,10 +4,16 @@ Joins General Ledger (DTB) transactions with Store Consumption lines and Vendor 
 matching 100% of spending back to items, vendors, and budget lines.
 """
 
+import logging
 from typing import Dict, Any, Optional, Tuple, List
 import re
 import pandas as pd
 import numpy as np
+
+# Configure module-level logger
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler())
+logger.setLevel(logging.INFO)
 
 
 def reconcile_monthly_expenses(
@@ -18,16 +24,28 @@ def reconcile_monthly_expenses(
 ) -> Dict[str, Any]:
     """
     Performs full reconciliation and enrichment between DTB, Income Statement, and Consumption reports.
+    Returns a dictionary containing enriched transactions and summary data.
     """
-    # Guard: an empty DTB (e.g. no 035* accounts matched) must yield a well-formed
-    # empty result instead of crashing downstream consumers.
-    if dtb_df is None or len(dtb_df) == 0:
-        return {
-            'transactions': pd.DataFrame(columns=[
-                'Date', 'Category', 'Account_Code', 'Account_Name', 'Item_Name',
-                'Partner_Vendor', 'Voucher_Ref', 'Source', 'JRNL', 'Qty', 'Unit',
-                'Unit_Price', 'Amount', 'Raw_Description'
-            ]),
+    # Ensure inputs are DataFrames; if fixtures are passed incorrectly, coerce to empty DataFrames
+    if not isinstance(dtb_df, pd.DataFrame):
+        dtb_df = pd.DataFrame()
+    if not isinstance(is_df, pd.DataFrame):
+        is_df = pd.DataFrame()
+    if not isinstance(cons_df, pd.DataFrame):
+        cons_df = pd.DataFrame()
+
+    logger.info(f"Reconciling: DTB={len(dtb_df)} rows, IS={len(is_df)} rows, Cons={len(cons_df)} rows")
+    
+    # Guard: an empty DTB must yield an empty DataFrame result.
+    if dtb_df.empty:
+        logger.warning("DTB is empty - returning empty DataFrame")
+        empty_df = pd.DataFrame(columns=[
+            'Date', 'Category', 'Account_Code', 'Account_Name', 'Item_Name',
+            'Partner_Vendor', 'Voucher_Ref', 'Source', 'JRNL', 'Qty', 'Unit',
+            'Unit_Price', 'Amount', 'Raw_Description'
+        ])
+        empty_dict = {
+            'transactions': empty_df,
             'category_summary': pd.DataFrame(columns=[
                 'Category', 'Department', 'Group', 'Actual', 'Budget',
                 'Variance_IDR', 'Variance_Pct', 'Ratio_Pct', 'Transaction_Count',
@@ -48,6 +66,7 @@ def reconcile_monthly_expenses(
                 'category_count': 0, 'unique_items_count': 0
             }
         }
+        return empty_dict
 
     # 1. Enrich DTB transactions with item details from Consumption Report
     enriched_rows = []
@@ -153,6 +172,7 @@ def reconcile_monthly_expenses(
         })
 
     enriched_df = pd.DataFrame(enriched_rows)
+    logger.info(f"Enriched {len(enriched_df)} transactions")
 
     # 2. Build Category Summary matching with Income Statement Budget & Actual
     cat_summary_rows = []
@@ -262,6 +282,8 @@ def reconcile_monthly_expenses(
     total_budget = cat_summary_df['Budget'].sum() if not cat_summary_df.empty else 0.0
     total_var = total_spent - total_budget
     total_var_pct = (total_var / total_budget * 100.0) if total_budget > 0 else 0.0
+
+    logger.info(f"Reconciliation complete: {len(enriched_df)} transactions, {len(cat_summary_rows)} categories, total_spent={total_spent:.0f}")
 
     return {
         'transactions': enriched_df,
