@@ -10,6 +10,7 @@ import sr_parser
 import exporter
 import ui_components
 from ui.formatting import format_idr, show_validation_banner
+from ui.security import sanitize_html, validate_upload_size, safe_filename
 from data.months import get_default_data_dir
 
 
@@ -52,8 +53,10 @@ def render_sr_separator() -> None:
             help="Upload one or multiple SR PDF files from Gudang Central."
         )
         sr_label = st.sidebar.text_input("Report Title / Month", "Stock Request Report")
-        sr_report_title = sr_label
+        sr_report_title = sanitize_html(sr_label)
         if uploaded_pdfs:
+            for uploaded in uploaded_pdfs:
+                validate_upload_size(uploaded)
             invalid_names = [
                 uploaded.name for uploaded in uploaded_pdfs
                 if ".." in uploaded.name or "/" in uploaded.name or "\\" in uploaded.name
@@ -86,10 +89,11 @@ def render_sr_separator() -> None:
 
     st.sidebar.divider()
     st.sidebar.markdown("### 📥 Quick Export")
+    safe_title = safe_filename(sr_report_title, default="SR_Report")
     st.sidebar.download_button(
         label="Download Separated SR Excel (.xlsx)",
         data=excel_sr_bytes,
-        file_name=f"Separated_SR_{sr_report_title.replace(' ', '_')}.xlsx",
+        file_name=f"Separated_SR_{safe_title.replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         width="stretch",
         type="primary"
@@ -243,10 +247,11 @@ def render_sr_separator() -> None:
         - 📋 **All SR Items**: Complete line item audit table.
         """)
 
+        safe_title = safe_filename(sr_report_title, default="SR_Report")
         st.download_button(
             label=f"📥 Download Full Separated SR Excel ({sr_report_title})",
             data=excel_sr_bytes,
-            file_name=f"Separated_SR_{sr_report_title.replace(' ', '_')}.xlsx",
+            file_name=f"Separated_SR_{safe_title.replace(' ', '_')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary"
         )

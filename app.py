@@ -12,17 +12,18 @@ import streamlit as st
 
 import ui_components
 from data.months import get_default_data_dir, discover_month_folders
+from ui.security import validate_data_dir
 from views.monthly_tracker import render_monthly_tracker
 from views.sr_separator import render_sr_separator
 
 
 def _get_logo_path() -> str:
-    """Return the path to the local hotel logo, falling back to the external URL."""
+    """Return the path to the local hotel logo, or None if it does not exist."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     local_logo = os.path.join(base_dir, "ui", "hotel.png")
     if os.path.exists(local_logo):
         return local_logo
-    return "https://icons8.com/icon/TvoaAyRcCREL/hotel-building"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +45,9 @@ if "theme_mode" not in st.session_state:
 # ---------------------------------------------------------------------------
 # Sidebar branding & theme mode choice
 # ---------------------------------------------------------------------------
-st.sidebar.image(_get_logo_path(), width=64)
+logo_path = _get_logo_path()
+if logo_path:
+    st.sidebar.image(logo_path, width=64)
 st.sidebar.title("Hotel")
 st.sidebar.markdown("**Room Division & Housekeeping**")
 
@@ -115,6 +118,11 @@ if "selected_data_dir" not in st.session_state:
 BASE_REVIEW_DIR = st.session_state.selected_data_dir
 st.session_state.selected_data_dir = os.path.normpath(BASE_REVIEW_DIR)
 
+if os.path.exists(BASE_REVIEW_DIR):
+    data_dir_error = validate_data_dir(BASE_REVIEW_DIR)
+    if data_dir_error:
+        st.sidebar.error(data_dir_error)
+
 MONTH_FOLDERS = discover_month_folders(BASE_REVIEW_DIR)
 if not MONTH_FOLDERS:
     MONTH_FOLDERS = {
@@ -133,43 +141,7 @@ app_mode = st.sidebar.radio(
 )
 st.sidebar.divider()
 
-# Demo mode toggle
-if "demo_mode" not in st.session_state:
-    st.session_state.demo_mode = False
 
-if st.session_state.demo_mode:
-    st.sidebar.success("Demo data is active")
-    if st.sidebar.button("Reset to Local Folder Mode", type="secondary", width="stretch", key="reset_demo"):
-        st.session_state.demo_mode = False
-        st.rerun()
-else:
-    if st.sidebar.button("Load Demo Data", type="secondary", width="stretch", key="load_demo"):
-        st.session_state.demo_mode = True
-        st.rerun()
-
-if st.sidebar.button("Load Sample Data", type="secondary", width="stretch", key="load_sample"):
-    from data.months import build_demo_reconciled_data
-    st.session_state.demo_mode = True
-    demo_data = build_demo_reconciled_data()
-    st.session_state.uploaded_months = {"Sample August 2026": demo_data}
-    st.session_state.upload_counter = 1
-    st.toast("Sample data loaded!")
-    st.rerun()
-
-# ---------------------------------------------------------------------------
-# Keyboard shortcuts
-# ---------------------------------------------------------------------------
-st.markdown("""
-<script>
-document.addEventListener('keydown', function(e) {
-    if (e.ctrlKey && e.key === 'r') {
-        e.preventDefault();
-        const resetBtn = document.querySelector('button[kind="secondary"]');
-        if (resetBtn) resetBtn.click();
-    }
-});
-</script>
-""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Dispatch

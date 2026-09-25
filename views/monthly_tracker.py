@@ -17,8 +17,16 @@ from data.months import (
     get_default_data_dir,
     discover_month_folders,
     cached_reconcile_month,
-    build_demo_reconciled_data,
     combine_month_datasets,
+)
+from ui.security import (
+    sanitize_html,
+    sanitize_excel_value,
+    safe_filename,
+    validate_upload_size,
+    safe_extract_zip,
+    validate_data_dir,
+    SecurityError,
 )
 
 
@@ -44,28 +52,24 @@ def _sidebar_data_dir(base_dir: str, has_local: bool, folders: dict) -> tuple:
         help="Set the parent folder containing month folders such as 8.AGUSTUS/ and 7.JULY/."
     )
     if user_data_dir:
-        st.session_state.selected_data_dir = user_data_dir
-        base_dir = user_data_dir
-        folders = discover_month_folders(base_dir)
-        if not folders:
-            folders = {
-                "August 2026 (Agustus)": os.path.join(base_dir, "8.AGUSTUS"),
-                "July 2026 (Juli)": os.path.join(base_dir, "7.JULY"),
-            }
-        has_local = os.path.exists(base_dir)
+        data_dir_error = validate_data_dir(user_data_dir)
+        if data_dir_error:
+            st.sidebar.error(data_dir_error)
+        else:
+            st.session_state.selected_data_dir = user_data_dir
+            base_dir = user_data_dir
+            folders = discover_month_folders(base_dir)
+            if not folders:
+                folders = {
+                    "August 2026 (Agustus)": os.path.join(base_dir, "8.AGUSTUS"),
+                    "July 2026 (Juli)": os.path.join(base_dir, "7.JULY"),
+                }
+            has_local = os.path.exists(base_dir)
 
     if not has_local:
         st.sidebar.warning(f"No local data folder found at: {base_dir}")
-        st.sidebar.caption("Set a valid folder with 8.AGUSTUS/ and 7.JULY/, or use demo data.")
+        st.sidebar.caption("Set a valid folder with 8.AGUSTUS/ and 7.JULY/.")
     return base_dir, has_local, folders
-
-
-def _load_demo_data() -> tuple:
-    """Load demo reconciled data."""
-    reconciled_data = build_demo_reconciled_data()
-    selected_month_name = "Demo August 2026"
-    st.sidebar.success("Demo data loaded. This is a sample month for previewing the dashboard.")
-    return reconciled_data, selected_month_name
 
 
 def _load_selected_months(folders: dict) -> tuple:
@@ -136,6 +140,12 @@ def _load_uploaded_files() -> tuple:
 
     if st.sidebar.button("➕ Add This Month to Dashboard", type="primary", width="stretch"):
         validation_messages = []
+        for uploaded in [dtb_file, is_file, cons_file]:
+            if uploaded:
+                try:
+                    validate_upload_size(uploaded)
+                except SecurityError as exc:
+                    validation_messages.append(str(exc))
         if not dtb_file:
             validation_messages.append("Detail Trial Balance (DTB) file is required.")
         if selected_month_label in st.session_state.uploaded_months:
@@ -149,41 +159,41 @@ def _load_uploaded_files() -> tuple:
             show_validation_banner(validation_messages, level="error")
         else:
             with st.spinner(f"Processing {selected_month_label}..."):
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_dtb:
-                    f_dtb.write(dtb_file.read())
-                    dtb_path = f_dtb.name
-
-                is_path = None
-                if is_file:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_is:
-                        f_is.write(is_file.read())
-                        is_path = f_is.name
-
-                cons_path = None
-                if cons_file:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_cons:
-                        f_cons.write(cons_file.read())
-                        cons_path = f_cons.name
-
-                dtb_df = parser.parse_detail_trial_balance(dtb_path)
-                is_df = parser.parse_income_statement(is_path) if is_path else pd.DataFrame()
-                cons_df = parser.parse_consumption_report(cons_path) if cons_path else pd.DataFrame()
-                parsed_m_data = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
-
-                st.session_state.uploaded_months[selected_month_label] = parsed_m_data
-                st.session_state.upload_counter += 1
-
+                dtb_path = is_path = cons_path = None
                 try:
-                    os.unlink(dtb_path)
-                    if is_path:
-                        os.unlink(is_path)
-                    if cons_path:
-                        os.unlink(cons_path)
-                except Exception:
-                    pass
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_dtb:
+                        f_dtb.write(dtb_file.read())
+                        dtb_path = f_dtb.name
 
-                st.toast(f"Added {selected_month_label} successfully!")
-                st.rerun()
+                    is_path = None
+                    if is_file:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_is:
+                            f_is.write(is_file.read())
+                            is_path = f_is.name
+
+                    cons_path = None
+                    if cons_file:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f_cons:
+                            f_cons.write(cons_file.read())
+                            cons_path = f_cons.name
+
+                    dtb_df = parser.parse_detail_trial_balance(dtb_path)
+                    is_df = parser.parse_income_statement(is_path) if is_path else pd.DataFrame()
+                    cons_df = parser.parse_consumption_report(cons_path) if cons_path else pd.DataFrame()
+                    parsed_m_data = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+
+                    st.session_state.uploaded_months[selected_month_label] = parsed_m_data
+                    st.session_state.upload_counter += 1
+
+                    st.toast(f"Added {selected_month_label} successfully!")
+                    st.rerun()
+                finally:
+                    for p in (dtb_path, is_path, cons_path):
+                        if p and os.path.exists(p):
+                            try:
+                                os.unlink(p)
+                            except Exception:
+                                pass
 
     if st.session_state.uploaded_months:
         return combine_month_datasets(st.session_state.uploaded_months)
@@ -197,8 +207,12 @@ def _load_zip_months() -> tuple:
         return None, ""
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        with zipfile.ZipFile(zip_file) as z:
-            z.extractall(tmpdir)
+        try:
+            validate_upload_size(zip_file)
+            safe_extract_zip(zip_file, tmpdir)
+        except SecurityError as exc:
+            st.error(str(exc))
+            return None, ""
         month_dirs = [os.path.join(tmpdir, d) for d in os.listdir(tmpdir) if os.path.isdir(os.path.join(tmpdir, d))]
         month_data = {}
         for month_dir in month_dirs:
@@ -626,11 +640,12 @@ def _render_export(reconciled_data: dict, selected_month_name: str, trx_df: pd.D
     st.divider()
 
     excel_bytes = exporter.create_separated_excel(reconciled_data, selected_month_name)
+    safe_month = safe_filename(selected_month_name, default="Month")
 
     st.download_button(
         label=f"📥 Download Full Separated Excel ({selected_month_name})",
         data=excel_bytes,
-        file_name=f"Separated_Expenses_{selected_month_name.replace(' ', '_')}.xlsx",
+        file_name=f"Separated_Expenses_{safe_month.replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary"
     )
@@ -656,21 +671,16 @@ def render_monthly_tracker() -> None:
     base_dir, has_local, folders = _get_month_folders()
     base_dir, has_local, folders = _sidebar_data_dir(base_dir, has_local, folders)
 
-    if st.session_state.get("demo_mode"):
-        data_source = "Demo Data"
-    else:
-        data_source = st.sidebar.radio(
-            "Select Data Source",
-            ["Select Month Folder", "Upload Custom Excel Files", "Upload Multiple Months"],
-            index=0 if has_local else 1
-        )
+    data_source = st.sidebar.radio(
+        "Select Data Source",
+        ["Select Month Folder", "Upload Custom Excel Files", "Upload Multiple Months"],
+        index=0 if has_local else 1
+    )
 
     reconciled_data = None
-    selected_month_name = "Demo August 2026"
+    selected_month_name = ""
 
-    if data_source == "Demo Data":
-        reconciled_data, selected_month_name = _load_demo_data()
-    elif data_source == "Select Month Folder":
+    if data_source == "Select Month Folder":
         result = _load_selected_months(folders)
         reconciled_data, selected_month_name = result if result[0] is not None else (None, "")
     elif data_source == "Upload Custom Excel Files":
@@ -693,17 +703,19 @@ def render_monthly_tracker() -> None:
     excel_bytes = exporter.create_separated_excel(reconciled_data, selected_month_name)
     st.sidebar.divider()
     st.sidebar.markdown("### 📥 Quick Export")
+    safe_month = safe_filename(selected_month_name, default="Month")
     st.sidebar.download_button(
         label="Download Separated Excel (.xlsx)",
         data=excel_bytes,
-        file_name=f"Separated_Expenses_{selected_month_name.replace(' ', '_')}.xlsx",
+        file_name=f"Separated_Expenses_{safe_month.replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         width="stretch",
         type="primary"
     )
 
     st.markdown('<div class="main-header">Hotel Expense Separator & Spending Tracker</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Hotel • Room Division & Housekeeping • Period: <b>{selected_month_name}</b></div>', unsafe_allow_html=True)
+    safe_month = sanitize_html(selected_month_name)
+    st.markdown(f'<div class="sub-header">Hotel • Room Division & Housekeeping • Period: <b>{safe_month}</b></div>', unsafe_allow_html=True)
 
     budget_pct = (metrics['total_spent'] / metrics['total_budget'] * 100) if metrics['total_budget'] > 0 else 0
     ui_components.render_kpi_row([

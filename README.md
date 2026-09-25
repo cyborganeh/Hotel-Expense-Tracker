@@ -38,7 +38,6 @@ A Streamlit application for Room Division and Housekeeping teams. It reconciles 
 5. **Flexible Data Sources**:
    - Select month folders from a local Business Review directory.
    - Upload one month at a time or upload a ZIP containing multiple month folders.
-   - Load built-in demo data to preview the dashboard without hotel files.
 
 ---
 
@@ -67,7 +66,7 @@ uv run streamlit run app.py
 ```
 Open **http://localhost:8501** in your web browser.
 
-In the sidebar, choose **Monthly Expense Tracker** or **Stock Request (SR) Separator**. The tracker can use local month folders, uploaded Excel files, uploaded ZIP archives, or demo data. The SR separator accepts PDF uploads or local PDFs under `SR REPORT`.
+In the sidebar, choose **Monthly Expense Tracker** or **Stock Request (SR) Separator**. The tracker can use local month folders, uploaded Excel files, or uploaded ZIP archives. The SR separator accepts PDF uploads or local PDFs under `SR REPORT`.
 
 ### 3. Run Headless CLI Separator
 To separate a specific month folder directly into an Excel workbook:

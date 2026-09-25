@@ -7,6 +7,8 @@ import io
 import logging
 import pandas as pd
 import openpyxl
+
+from ui.security import sanitize_excel_value
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -104,6 +106,7 @@ def create_separated_excel(
 
     # Title
     ws_sum["A1"] = "Hotel - Spending Breakdown & Variance"
+    month_name = sanitize_excel_value(month_name)
     ws_sum["A1"].font = title_font
     ws_sum["A2"] = f"Period: {month_name} | Generated via Expense Separator App"
     ws_sum["A2"].font = subtitle_font
@@ -148,8 +151,8 @@ def create_separated_excel(
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     for r_idx, (_, row) in enumerate(cat_df.iterrows(), start_row + 1):
-        ws_sum.cell(r_idx, 1, row['Category']).font = regular_font
-        ws_sum.cell(r_idx, 2, row['Group']).font = regular_font
+        ws_sum.cell(r_idx, 1, sanitize_excel_value(row['Category'])).font = regular_font
+        ws_sum.cell(r_idx, 2, sanitize_excel_value(row['Group'])).font = regular_font
         
         c_bgt = ws_sum.cell(r_idx, 3, row['Budget'])
         c_bgt.font = regular_font
@@ -167,7 +170,7 @@ def create_separated_excel(
         c_pct.font = regular_font
         c_pct.number_format = num_format_pct
 
-        c_stat = ws_sum.cell(r_idx, 7, row['Status'])
+        c_stat = ws_sum.cell(r_idx, 7, sanitize_excel_value(row['Status']))
         c_stat.alignment = Alignment(horizontal="center")
         if row['Status'] == 'Over Budget':
             c_stat.fill = red_fill
@@ -178,7 +181,7 @@ def create_separated_excel(
         else:
             c_stat.font = regular_font
 
-        ws_sum.cell(r_idx, 8, row['Top_Item']).font = regular_font
+        ws_sum.cell(r_idx, 8, sanitize_excel_value(row['Top_Item'])).font = regular_font
         ws_sum.cell(r_idx, 9, row['Transaction_Count']).font = regular_font
         ws_sum.cell(r_idx, 9).alignment = Alignment(horizontal="center")
 
@@ -230,16 +233,16 @@ def create_separated_excel(
         fill = zebra_fill if r_idx % 2 == 0 else PatternFill(fill_type=None)
         
         ws_trx.cell(r_idx, 1, row['Date']).font = regular_font
-        ws_trx.cell(r_idx, 2, row['Category']).font = regular_font
-        ws_trx.cell(r_idx, 3, row.get('Account_Code', '')).font = regular_font
-        ws_trx.cell(r_idx, 4, row['Item_Name']).font = bold_font
-        ws_trx.cell(r_idx, 5, row['Partner_Vendor']).font = regular_font
+        ws_trx.cell(r_idx, 2, sanitize_excel_value(row['Category'])).font = regular_font
+        ws_trx.cell(r_idx, 3, sanitize_excel_value(row.get('Account_Code', ''))).font = regular_font
+        ws_trx.cell(r_idx, 4, sanitize_excel_value(row['Item_Name'])).font = bold_font
+        ws_trx.cell(r_idx, 5, sanitize_excel_value(row['Partner_Vendor'])).font = regular_font
         
         c_q = ws_trx.cell(r_idx, 6, row['Qty'])
         c_q.font = regular_font
         c_q.alignment = Alignment(horizontal="right")
         
-        ws_trx.cell(r_idx, 7, row['Unit']).font = regular_font
+        ws_trx.cell(r_idx, 7, sanitize_excel_value(row['Unit'])).font = regular_font
         
         c_up = ws_trx.cell(r_idx, 8, row['Unit_Price'])
         c_up.font = regular_font
@@ -249,9 +252,9 @@ def create_separated_excel(
         c_amt.font = bold_font
         c_amt.number_format = num_format_currency
 
-        ws_trx.cell(r_idx, 10, row['Voucher_Ref']).font = regular_font
-        ws_trx.cell(r_idx, 11, row['JRNL']).font = regular_font
-        ws_trx.cell(r_idx, 12, row['Raw_Description']).font = regular_font
+        ws_trx.cell(r_idx, 10, sanitize_excel_value(row['Voucher_Ref'])).font = regular_font
+        ws_trx.cell(r_idx, 11, sanitize_excel_value(row['JRNL'])).font = regular_font
+        ws_trx.cell(r_idx, 12, sanitize_excel_value(row['Raw_Description'])).font = regular_font
 
         for col_i in range(1, 13):
             c_cell = ws_trx.cell(r_idx, col_i)
@@ -288,16 +291,16 @@ def create_separated_excel(
         for _, row in item_df.iterrows():
             fill = zebra_fill if r_idx % 2 == 0 else PatternFill(fill_type=None)
             
-            ws_items.cell(r_idx, 1, row['Category']).font = bold_font if row['Category'] != curr_cat else regular_font
+            ws_items.cell(r_idx, 1, sanitize_excel_value(row['Category'])).font = bold_font if row['Category'] != curr_cat else regular_font
             curr_cat = row['Category']
-            ws_items.cell(r_idx, 2, row['Item_Name']).font = bold_font
+            ws_items.cell(r_idx, 2, sanitize_excel_value(row['Item_Name'])).font = bold_font
             
             c_q = ws_items.cell(r_idx, 3, row['Total_Qty'])
             c_q.font = bold_font
             c_q.alignment = Alignment(horizontal="right")
             c_q.number_format = "#,##0"
 
-            ws_items.cell(r_idx, 4, row['Unit']).font = regular_font
+            ws_items.cell(r_idx, 4, sanitize_excel_value(row['Unit'])).font = regular_font
             
             c_up = ws_items.cell(r_idx, 5, row['Avg_Unit_Price'])
             c_up.font = regular_font
@@ -316,7 +319,7 @@ def create_separated_excel(
             c_cnt.alignment = Alignment(horizontal="center")
 
             date_range_str = f"{row['First_Date']} ~ {row['Last_Date']}" if row['First_Date'] != row['Last_Date'] else str(row['First_Date'])
-            ws_items.cell(r_idx, 9, date_range_str).font = regular_font
+            ws_items.cell(r_idx, 9, sanitize_excel_value(date_range_str)).font = regular_font
 
             for col_i in range(1, 10):
                 c_cell = ws_items.cell(r_idx, col_i)
@@ -368,15 +371,15 @@ def create_separated_excel(
             curr_row += 1
             start_sub_row = curr_row
             for _, i_row in cat_items.iterrows():
-                ws.cell(curr_row, 1, i_row['Item_Name']).font = bold_font
-                ws.cell(curr_row, 2, i_row['Category']).font = regular_font
+                ws.cell(curr_row, 1, sanitize_excel_value(i_row['Item_Name'])).font = bold_font
+                ws.cell(curr_row, 2, sanitize_excel_value(i_row['Category'])).font = regular_font
                 
                 c_q = ws.cell(curr_row, 3, i_row['Total_Qty'])
                 c_q.font = bold_font
                 c_q.alignment = Alignment(horizontal="right")
                 c_q.number_format = "#,##0"
 
-                ws.cell(curr_row, 4, i_row['Unit']).font = regular_font
+                ws.cell(curr_row, 4, sanitize_excel_value(i_row['Unit'])).font = regular_font
                 
                 c_up = ws.cell(curr_row, 5, i_row['Avg_Unit_Price'])
                 c_up.font = regular_font
@@ -424,11 +427,11 @@ def create_separated_excel(
 
         for r_idx, (_, row) in enumerate(filtered_df.iterrows(), s_row + 1):
             ws.cell(r_idx, 1, row['Date']).font = regular_font
-            ws.cell(r_idx, 2, row['Category']).font = regular_font
-            ws.cell(r_idx, 3, row['Item_Name']).font = bold_font
-            ws.cell(r_idx, 4, row['Partner_Vendor']).font = regular_font
+            ws.cell(r_idx, 2, sanitize_excel_value(row['Category'])).font = regular_font
+            ws.cell(r_idx, 3, sanitize_excel_value(row['Item_Name'])).font = bold_font
+            ws.cell(r_idx, 4, sanitize_excel_value(row['Partner_Vendor'])).font = regular_font
             ws.cell(r_idx, 5, row['Qty']).font = regular_font
-            ws.cell(r_idx, 6, row['Unit']).font = regular_font
+            ws.cell(r_idx, 6, sanitize_excel_value(row['Unit'])).font = regular_font
             
             c_p = ws.cell(r_idx, 7, row['Unit_Price'])
             c_p.font = regular_font
@@ -438,7 +441,7 @@ def create_separated_excel(
             c_a.font = bold_font
             c_a.number_format = num_format_currency
 
-            ws.cell(r_idx, 9, row['Voucher_Ref']).font = regular_font
+            ws.cell(r_idx, 9, sanitize_excel_value(row['Voucher_Ref'])).font = regular_font
 
             for col_i in range(1, 10):
                 ws.cell(r_idx, col_i).border = thin_border
@@ -539,7 +542,7 @@ def create_sr_separated_excel(
 
     ws_sum["A1"] = "Hotel - Stock Request (SR) Separator"
     ws_sum["A1"].font = title_font
-    ws_sum["A2"] = f"{report_title} | Gudang Central Issuing to Housekeeping"
+    ws_sum["A2"] = f"{sanitize_excel_value(report_title)} | Gudang Central Issuing to Housekeeping"
     ws_sum["A2"].font = subtitle_font
 
     # KPI Summary Cards
@@ -645,11 +648,11 @@ def create_sr_separated_excel(
         for rank, (_, row) in enumerate(top_items.iterrows(), 1):
             ws_sum.cell(curr_r, 1, rank).font = regular_font
             ws_sum.cell(curr_r, 1).alignment = Alignment(horizontal="center")
-            ws_sum.cell(curr_r, 2, row['Item_Name']).font = bold_font
-            ws_sum.cell(curr_r, 3, row['Category']).font = regular_font
+            ws_sum.cell(curr_r, 2, sanitize_excel_value(row['Item_Name'])).font = bold_font
+            ws_sum.cell(curr_r, 3, sanitize_excel_value(row['Category'])).font = regular_font
             ws_sum.cell(curr_r, 4, row['Total_Qty']).font = regular_font
             ws_sum.cell(curr_r, 4).number_format = "#,##0"
-            ws_sum.cell(curr_r, 5, row['Unit']).font = regular_font
+            ws_sum.cell(curr_r, 5, sanitize_excel_value(row['Unit'])).font = regular_font
             ws_sum.cell(curr_r, 6, row['Total_Amount']).font = bold_font
             ws_sum.cell(curr_r, 6).number_format = num_format_currency
             pct = row['Total_Amount'] / total_amount if total_amount > 0 else 0.0
@@ -699,12 +702,12 @@ def create_sr_separated_excel(
         r = 6
         start_item_r = r
         for _, row in item_agg.iterrows():
-            ws.cell(r, 1, row['Item_Code']).font = regular_font
-            ws.cell(r, 2, row['Item_Name']).font = bold_font
+            ws.cell(r, 1, sanitize_excel_value(row['Item_Code'])).font = regular_font
+            ws.cell(r, 2, sanitize_excel_value(row['Item_Name'])).font = bold_font
             ws.cell(r, 3, row['Total_Qty']).font = bold_font
             ws.cell(r, 3).number_format = "#,##0"
             ws.cell(r, 3).alignment = Alignment(horizontal="right")
-            ws.cell(r, 4, row['Unit']).font = regular_font
+            ws.cell(r, 4, sanitize_excel_value(row['Unit'])).font = regular_font
             ws.cell(r, 5, row['Avg_Cost']).font = regular_font
             ws.cell(r, 5).number_format = num_format_currency
             ws.cell(r, 6, row['Total_Amount']).font = bold_font
@@ -745,17 +748,17 @@ def create_sr_separated_excel(
         cat_sorted = cat_df.sort_values(by=['Date', 'SR_Number', 'Item_Name'])
         for _, row in cat_sorted.iterrows():
             ws.cell(r, 1, row['Date']).font = regular_font
-            ws.cell(r, 2, row['SR_Number']).font = regular_font
-            ws.cell(r, 3, row['Item_Code']).font = regular_font
-            ws.cell(r, 4, row['Item_Name']).font = bold_font
+            ws.cell(r, 2, sanitize_excel_value(row['SR_Number'])).font = regular_font
+            ws.cell(r, 3, sanitize_excel_value(row['Item_Code'])).font = regular_font
+            ws.cell(r, 4, sanitize_excel_value(row['Item_Name'])).font = bold_font
             ws.cell(r, 5, row['Qty']).font = regular_font
             ws.cell(r, 5).number_format = "#,##0"
-            ws.cell(r, 6, row['Unit']).font = regular_font
+            ws.cell(r, 6, sanitize_excel_value(row['Unit'])).font = regular_font
             ws.cell(r, 7, row['Cost']).font = regular_font
             ws.cell(r, 7).number_format = num_format_currency
             ws.cell(r, 8, row['Total']).font = bold_font
             ws.cell(r, 8).number_format = num_format_currency
-            ws.cell(r, 9, row['Requested_By']).font = regular_font
+            ws.cell(r, 9, sanitize_excel_value(row['Requested_By'])).font = regular_font
 
             for col_i in range(1, 10):
                 ws.cell(r, col_i).border = thin_border
@@ -794,19 +797,19 @@ def create_sr_separated_excel(
 
     for r_idx, (_, row) in enumerate(sr_df.iterrows(), 2):
         ws_all.cell(r_idx, 1, row['Date']).font = regular_font
-        ws_all.cell(r_idx, 2, row['SR_Number']).font = regular_font
-        ws_all.cell(r_idx, 3, row['Category']).font = bold_font
-        ws_all.cell(r_idx, 4, row['Item_Code']).font = regular_font
-        ws_all.cell(r_idx, 5, row['Item_Name']).font = bold_font
+        ws_all.cell(r_idx, 2, sanitize_excel_value(row['SR_Number'])).font = regular_font
+        ws_all.cell(r_idx, 3, sanitize_excel_value(row['Category'])).font = bold_font
+        ws_all.cell(r_idx, 4, sanitize_excel_value(row['Item_Code'])).font = regular_font
+        ws_all.cell(r_idx, 5, sanitize_excel_value(row['Item_Name'])).font = bold_font
         ws_all.cell(r_idx, 6, row['Qty']).font = regular_font
         ws_all.cell(r_idx, 6).number_format = "#,##0"
-        ws_all.cell(r_idx, 7, row['Unit']).font = regular_font
+        ws_all.cell(r_idx, 7, sanitize_excel_value(row['Unit'])).font = regular_font
         ws_all.cell(r_idx, 8, row['Cost']).font = regular_font
         ws_all.cell(r_idx, 8).number_format = num_format_currency
         ws_all.cell(r_idx, 9, row['Total']).font = bold_font
         ws_all.cell(r_idx, 9).number_format = num_format_currency
-        ws_all.cell(r_idx, 10, row['Requested_By']).font = regular_font
-        ws_all.cell(r_idx, 11, row.get('Source_File', '')).font = regular_font
+        ws_all.cell(r_idx, 10, sanitize_excel_value(row['Requested_By'])).font = regular_font
+        ws_all.cell(r_idx, 11, sanitize_excel_value(row.get('Source_File', ''))).font = regular_font
 
         for col_i in range(1, 12):
             ws_all.cell(r_idx, col_i).border = thin_border
