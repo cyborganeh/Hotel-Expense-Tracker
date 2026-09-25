@@ -1,67 +1,53 @@
-"""Simple session-based authentication for the Streamlit app.
+"""Simple password gate for the Streamlit app.
 
-Credentials can be provided via:
-  1. `.streamlit/secrets.toml` under [credentials] or [auth.credentials]
-  2. Environment variables `HOTEL_APP_USERNAME` and `HOTEL_APP_PASSWORD`
+The password is resolved in this order:
+  1. `.streamlit/secrets.toml` -> `[auth] password = "..."`
+  2. Environment variable `HOTEL_APP_PASSWORD`
+  3. The built-in default below
 
-Example secrets.toml:
-    [credentials]
-    admin = { password = "your-secure-password" }
+Change `DEFAULT_PASSWORD` (or set one of the options above) before
+sharing the app with anyone.
 """
 import os
-from typing import Dict, Optional
 
 import streamlit as st
 
+# Built-in fallback password. Override it in secrets.toml or via env var.
+DEFAULT_PASSWORD = "123456"
 
-def _load_credentials() -> Optional[Dict[str, str]]:
-    """Load username -> password mapping from secrets or environment."""
+
+def _load_password() -> str:
+    """Resolve the active password from secrets, environment, or the default."""
     try:
-        secrets = st.secrets
-        creds = secrets.get("credentials") or secrets.get("auth", {}).get("credentials")
-        if creds:
-            return {user: info.get("password", info) for user, info in creds.items()}
+        auth_section = st.secrets.get("auth")
+        if auth_section and auth_section.get("password"):
+            return str(auth_section["password"])
     except Exception:
         pass
 
-    env_user = os.environ.get("HOTEL_APP_USERNAME", "admin")
-    env_pass = os.environ.get("HOTEL_APP_PASSWORD")
-    if env_pass:
-        return {env_user: env_pass}
-    return None
+    return os.environ.get("HOTEL_APP_PASSWORD") or DEFAULT_PASSWORD
 
 
 def require_auth() -> bool:
-    """Show a login form if the user is not authenticated. Returns True when authenticated."""
+    """Show a password prompt if the user is not authenticated. Returns True when authenticated."""
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if st.session_state.authenticated:
         return True
 
-    creds = _load_credentials()
-
     st.markdown("## 🔒 Hotel Spending Tracker")
-    st.markdown("Please sign in to continue.")
-
-    if creds is None:
-        st.warning(
-            "Authentication is not configured. Set credentials in `.streamlit/secrets.toml` "
-            "or environment variables `HOTEL_APP_USERNAME` / `HOTEL_APP_PASSWORD`."
-        )
-        return False
+    st.markdown("Enter the password to continue.")
 
     with st.form("login_form", clear_on_submit=True):
-        username = st.text_input("Username", value="")
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Log in")
         if submitted:
-            stored = creds.get(username)
-            if stored and stored == password:
+            if password and password == _load_password():
                 st.session_state.authenticated = True
                 st.rerun()
             else:
-                st.error("Invalid username or password.")
+                st.error("Incorrect password.")
         return False
 
 
