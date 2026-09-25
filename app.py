@@ -62,7 +62,7 @@ if "theme_mode" not in st.session_state:
     st.session_state["theme_mode"] = "dark"
 
 # Sidebar Branding & Theme Mode Choice
-st.sidebar.image("https://img.icons8.com/color/96/hotel-star.png", width=64)
+st.sidebar.image("https://icons8.com/icon/TvoaAyRcCREL/hotel-building", width=64)
 st.sidebar.title("Santika Depok")
 st.sidebar.markdown("**Room Division & Housekeeping**")
 
