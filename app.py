@@ -76,236 +76,56 @@ theme_choice = st.sidebar.radio(
 st.session_state["theme_mode"] = "dark" if "Dark" in theme_choice else "light"
 is_dark = st.session_state["theme_mode"] == "dark"
 
-if is_dark:
-    st.markdown("""
-    <style>
-        :root {
-            --bg-main: #0B0F19;
-            --bg-card: #151C2C;
-            --bg-card-hover: #1A2338;
-            --bg-sidebar: #080D1A;
-            --text-main: #F8FAFC;
-            --text-muted: #94A3B8;
-            --border-subtle: rgba(255, 255, 255, 0.08);
-            --border-hover: rgba(59, 130, 246, 0.5);
-            --accent: #3B82F6;
-            --delta-pos: #34D399;
-            --delta-neg: #F87171;
-        }
-        .stApp {
-            background-color: var(--bg-main) !important;
-            color: var(--text-main) !important;
-        }
-        section[data-testid="stSidebar"] {
-            background-color: var(--bg-sidebar) !important;
-            border-right: 1px solid var(--border-subtle) !important;
-        }
-        .main-header {
-            font-size: 2.1rem;
-            font-weight: 750;
-            letter-spacing: -0.025em;
-            color: #FFFFFF !important;
-            margin-bottom: 0.25rem;
-            line-height: 1.25;
-        }
-        .sub-header {
-            font-size: 0.96rem;
-            font-weight: 450;
-            color: #94A3B8 !important;
-            margin-bottom: 1.5rem;
-        }
-        .metric-card {
-            background-color: var(--bg-card) !important;
-            border: 1px solid var(--border-subtle) !important;
-            border-radius: 12px;
-            padding: 1.1rem 1.25rem;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
-            color: var(--text-main) !important;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            min-height: 110px;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
-        }
-        .metric-card:hover {
-            border-color: var(--border-hover) !important;
-            box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5) !important;
-            transform: translateY(-2px);
-        }
-        .metric-card .metric-label {
-            font-size: 0.76rem;
-            font-weight: 650;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            color: #94A3B8 !important;
-            margin-bottom: 0.35rem;
-        }
-        .metric-card .metric-value {
-            font-size: 1.65rem;
-            font-weight: 750;
-            color: #FFFFFF !important;
-            letter-spacing: -0.02em;
-            line-height: 1.2;
-        }
-        .metric-card .metric-delta {
-            font-size: 0.82rem;
-            font-weight: 550;
-            margin-top: 0.4rem;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .metric-card .metric-delta.delta-pos {
-            color: var(--delta-pos) !important;
-        }
-        .metric-card .metric-delta.delta-neg {
-            color: var(--delta-neg) !important;
-        }
-        .metric-card .metric-delta.delta-neutral {
-            color: #94A3B8 !important;
-        }
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 6px;
-            border-bottom: 1px solid var(--border-subtle) !important;
-        }
-        .stTabs [data-baseweb="tab"] {
-            padding: 8px 16px;
-            border-radius: 8px 8px 0 0;
-            font-weight: 550;
-            font-size: 0.92rem;
-            color: #94A3B8 !important;
-            transition: all 0.2s ease;
-        }
-        .stTabs [data-baseweb="tab"]:hover {
-            color: #FFFFFF !important;
-            background-color: rgba(255, 255, 255, 0.04);
-        }
-        .stTabs [aria-selected="true"] {
-            color: #60A5FA !important;
-            border-bottom: 2px solid #3B82F6 !important;
-            font-weight: 650 !important;
-        }
-        [data-testid="stDataFrame"] {
-            border: 1px solid var(--border-subtle) !important;
-            border-radius: 8px;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-else:
-    st.markdown("""
-    <style>
-        :root {
-            --bg-main: #F8FAFC;
-            --bg-card: #FFFFFF;
-            --bg-card-hover: #F1F5F9;
-            --bg-sidebar: #FFFFFF;
-            --text-main: #0F172A;
-            --text-muted: #475569;
-            --border-subtle: #E2E8F0;
-            --border-hover: rgba(37, 99, 235, 0.45);
-            --accent: #2563EB;
-            --delta-pos: #15803D;
-            --delta-neg: #DC2626;
-        }
-        .stApp {
-            background-color: var(--bg-main) !important;
-            color: var(--text-main) !important;
-        }
-        section[data-testid="stSidebar"] {
-            background-color: var(--bg-sidebar) !important;
-            border-right: 1px solid var(--border-subtle) !important;
-        }
-        .main-header {
-            font-size: 2.1rem;
-            font-weight: 750;
-            letter-spacing: -0.025em;
-            color: #0F172A !important;
-            margin-bottom: 0.25rem;
-            line-height: 1.25;
-        }
-        .sub-header {
-            font-size: 0.96rem;
-            font-weight: 450;
-            color: #475569 !important;
-            margin-bottom: 1.5rem;
-        }
-        .metric-card {
-            background-color: var(--bg-card) !important;
-            border: 1px solid var(--border-subtle) !important;
-            border-radius: 12px;
-            padding: 1.1rem 1.25rem;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
-            color: var(--text-main) !important;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            min-height: 110px;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
-        }
-        .metric-card:hover {
-            border-color: var(--border-hover) !important;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08) !important;
-            transform: translateY(-2px);
-        }
-        .metric-card .metric-label {
-            font-size: 0.76rem;
-            font-weight: 650;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            color: #475569 !important;
-            margin-bottom: 0.35rem;
-        }
-        .metric-card .metric-value {
-            font-size: 1.65rem;
-            font-weight: 750;
-            color: #0F172A !important;
-            letter-spacing: -0.02em;
-            line-height: 1.2;
-        }
-        .metric-card .metric-delta {
-            font-size: 0.82rem;
-            font-weight: 550;
-            margin-top: 0.4rem;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .metric-card .metric-delta.delta-pos {
-            color: var(--delta-pos) !important;
-        }
-        .metric-card .metric-delta.delta-neg {
-            color: var(--delta-neg) !important;
-        }
-        .metric-card .metric-delta.delta-neutral {
-            color: #64748B !important;
-        }
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 6px;
-            border-bottom: 1px solid var(--border-subtle) !important;
-        }
-        .stTabs [data-baseweb="tab"] {
-            padding: 8px 16px;
-            border-radius: 8px 8px 0 0;
-            font-weight: 550;
-            font-size: 0.92rem;
-            color: #475569 !important;
-            transition: all 0.2s ease;
-        }
-        .stTabs [data-baseweb="tab"]:hover {
-            color: #0F172A !important;
-            background-color: rgba(0, 0, 0, 0.03);
-        }
-        .stTabs [aria-selected="true"] {
-            color: #2563EB !important;
-            border-bottom: 2px solid #2563EB !important;
-            font-weight: 650 !important;
-        }
-        [data-testid="stDataFrame"] {
-            border: 1px solid var(--border-subtle) !important;
-            border-radius: 8px;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+# Apply theme CSS variables based on session state
+# The consolidated CSS uses [data-theme] attribute on <html> for light/dark switching
+theme_mode = st.session_state.get("theme_mode", "dark")
+st.markdown(f"""
+<script>
+    document.documentElement.setAttribute('data-theme', '{theme_mode}');
+</script>
+""", unsafe_allow_html=True)
+
+# Theme CSS variables (dark defaults + light overrides)
+st.markdown("""
+<style>
+    /* Theme root variables — dark mode defaults */
+    :root {
+        --bg-main: #0B0F19;
+        --bg-card: #151C2C;
+        --bg-card-hover: #1A2338;
+        --bg-sidebar: #080D1A;
+        --text-main: #F8FAFC;
+        --text-muted: #94A3B8;
+        --border-subtle: rgba(255, 255, 255, 0.08);
+        --border-hover: rgba(59, 130, 246, 0.5);
+        --accent: #3B82F6;
+        --delta-pos: #34D399;
+        --delta-neg: #F87171;
+        --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+        --card-shadow-hover: 0 6px 22px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Light mode overrides — applied when data-theme="light" */
+    [data-theme="light"] {
+        --bg-main: #F8FAFC;
+        --bg-card: #FFFFFF;
+        --bg-card-hover: #F1F5F9;
+        --bg-sidebar: #FFFFFF;
+        --text-main: #0F172A;
+        --text-muted: #475569;
+        --border-subtle: #E2E8F0;
+        --border-hover: rgba(37, 99, 235, 0.45);
+        --accent: #2563EB;
+        --delta-pos: #15803D;
+        --delta-neg: #DC2626;
+        --card-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+        --card-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.08);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Inject shared metric-card and UI CSS from ui_components
+st.markdown(ui_components.get_metric_card_css(), unsafe_allow_html=True)
 
 # Helper formatting
 def format_idr(val):
@@ -608,16 +428,14 @@ def render_sr_separator():
 
     ui_components.render_kpi_row([
         {'label': 'TOTAL SPEND (SR)', 'value': format_idr(tot_amt),
-         'delta': f"{len(sr_df)} line items issued", 'delta_tone': 'neutral'},
+         'delta': f"{len(sr_df)} line items issued", 'delta_tone': 'neutral', 'show_arrow': True},
         {'label': 'TOTAL QUANTITY', 'value': f"{tot_qty:,.0f}",
-         'delta': 'Across all units & categories', 'delta_tone': 'pos'},
+         'delta': 'Across all units & categories', 'delta_tone': 'pos', 'show_arrow': True},
         {'label': 'UNIQUE ITEMS', 'value': str(tot_items),
-         'delta': 'Distinct products ordered', 'delta_tone': 'neutral'},
+         'delta': 'Distinct products ordered', 'delta_tone': 'neutral', 'show_arrow': True},
         {'label': 'SR ORDERS COUNT', 'value': str(tot_orders),
-         'delta': 'Warehouse vouchers processed', 'delta_tone': 'pos'},
+         'delta': 'Warehouse vouchers processed', 'delta_tone': 'pos', 'show_arrow': True},
     ])
-
-    st.markdown("<br>", unsafe_allow_html=True)
 
     # Tabs
     tab_overview, tab_gs, tab_cs, tab_ps, tab_pst, tab_all, tab_exp = st.tabs([
@@ -1031,20 +849,16 @@ if reconciled_data:
     # Top KPI Metrics row
     budget_pct = (metrics['total_spent'] / metrics['total_budget'] * 100) if metrics['total_budget'] > 0 else 0
     ui_components.render_kpi_row([
-        {'label': 'TOTAL SPENT', 'value': format_idr(metrics['total_spent']),
-         'delta': None},
-        {'label': 'TOTAL BUDGET', 'value': format_idr(metrics['total_budget']),
-         'delta': None},
+        {'label': 'TOTAL SPENT', 'value': format_idr(metrics['total_spent']), 'delta': None, 'show_arrow': False},
+        {'label': 'TOTAL BUDGET', 'value': format_idr(metrics['total_budget']), 'delta': None, 'show_arrow': False},
         {'label': 'NET VARIANCE', 'value': format_idr(metrics['variance_idr']),
          'delta': f"{metrics['variance_pct']:+.1f}% vs budget",
-         'delta_tone': 'pos' if metrics['variance_idr'] <= 0 else 'neg'},
+         'delta_tone': 'pos' if metrics['variance_idr'] <= 0 else 'neg', 'show_arrow': False},
         {'label': 'RECONCILED TRANSACTIONS', 'value': f"{metrics['transaction_count']:,}",
-         'delta': 'ledger entries classified', 'delta_tone': 'neutral'},
+         'delta': 'ledger entries classified', 'delta_tone': 'neutral', 'show_arrow': False},
         {'label': 'BUDGET UTILIZATION', 'value': f"{budget_pct:.1f}%",
-         'delta': 'share of budget consumed', 'delta_tone': 'neutral'},
+         'delta': 'share of budget consumed', 'delta_tone': 'neutral', 'show_arrow': False},
     ])
-
-    st.markdown("<br>", unsafe_allow_html=True)
 
     # Tabs
     tab_dash, tab_items, tab_drill, tab_bgt, tab_mom, tab_export = st.tabs([
@@ -1143,13 +957,11 @@ if reconciled_data:
             unique_items_cnt = len(filtered_items)
 
             ui_components.render_kpi_row([
-                {'label': 'TOTAL SPEND', 'value': format_idr(total_items_spend), 'delta': None},
-                {'label': 'TOTAL UNITS / QUANTITIES', 'value': f"{total_items_qty:,.0f} units", 'delta': None},
-                {'label': 'TOTAL REPEATED ORDERS', 'value': str(total_orders_count), 'delta': 'deliveries', 'delta_tone': 'neutral'},
-                {'label': 'UNIQUE ITEMS TRACKED', 'value': str(unique_items_cnt), 'delta': 'items', 'delta_tone': 'neutral'},
+                {'label': 'TOTAL SPEND', 'value': format_idr(total_items_spend), 'delta': None, 'show_arrow': False},
+                {'label': 'TOTAL UNITS / QUANTITIES', 'value': f"{total_items_qty:,.0f} units", 'delta': None, 'show_arrow': False},
+                {'label': 'TOTAL REPEATED ORDERS', 'value': str(total_orders_count), 'delta': 'deliveries', 'delta_tone': 'neutral', 'show_arrow': True},
+                {'label': 'UNIQUE ITEMS TRACKED', 'value': str(unique_items_cnt), 'delta': 'items', 'delta_tone': 'neutral', 'show_arrow': True},
             ])
-
-            st.markdown("<br>", unsafe_allow_html=True)
 
             # Item Summary Table
             st.markdown("#### Item Totals Table (Quantities & Total Cost)")
@@ -1217,10 +1029,10 @@ if reconciled_data:
                     item_avg_cost = item_trxs['Unit_Price'].mean()
 
                     ui_components.render_kpi_row([
-                        {'label': f'TOTAL {selected_item_name.upper()}', 'value': f"{item_tot_qty:,.0f} {item_unit}", 'delta': None},
-                        {'label': 'TOTAL MONTH SPEND', 'value': format_idr(item_tot_cost), 'delta': None},
-                        {'label': 'AVG UNIT PRICE', 'value': format_idr(item_avg_cost), 'delta': None},
-                        {'label': 'TOTAL DELIVERIES / VOUCHERS', 'value': str(len(item_trxs)), 'delta': 'times', 'delta_tone': 'neutral'},
+                        {'label': f'TOTAL {selected_item_name.upper()}', 'value': f"{item_tot_qty:,.0f} {item_unit}", 'delta': None, 'show_arrow': False},
+                        {'label': 'TOTAL MONTH SPEND', 'value': format_idr(item_tot_cost), 'delta': None, 'show_arrow': False},
+                        {'label': 'AVG UNIT PRICE', 'value': format_idr(item_avg_cost), 'delta': None, 'show_arrow': False},
+                        {'label': 'TOTAL DELIVERIES / VOUCHERS', 'value': str(len(item_trxs)), 'delta': 'times', 'delta_tone': 'neutral', 'show_arrow': True},
                     ])
 
                     # Timeline Chart of Deliveries
@@ -1437,11 +1249,11 @@ if reconciled_data:
                     net_mom = cur_rec['metrics']['total_spent'] - july_total
                     net_mom_pct = (net_mom / july_total * 100.0) if july_total > 0 else 0
                     ui_components.render_kpi_row([
-                        {'label': (mom_current_name + ' Total').upper(), 'value': format_idr(cur_rec['metrics']['total_spent']), 'delta': None},
-                        {'label': (mom_previous_name + ' Total').upper(), 'value': format_idr(july_total), 'delta': None},
+                        {'label': (mom_current_name + ' Total').upper(), 'value': format_idr(cur_rec['metrics']['total_spent']), 'delta': None, 'show_arrow': False},
+                        {'label': (mom_previous_name + ' Total').upper(), 'value': format_idr(july_total), 'delta': None, 'show_arrow': False},
                         {'label': 'MOM SPENDING SHIFT', 'value': format_idr(net_mom),
                          'delta': f"{net_mom_pct:+.1f}% vs previous month",
-                         'delta_tone': 'neg' if net_mom > 0 else 'pos'},
+                         'delta_tone': 'neg' if net_mom > 0 else 'pos', 'show_arrow': False},
                     ])
 
                     # MoM Comparison Bar Chart
