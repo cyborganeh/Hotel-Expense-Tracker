@@ -1,5 +1,4 @@
-"""
-exporter.py - Excel generation module for Hotel Santika Depok.
+"""exporter.py - Excel generation module for Hotel.
 Creates multi-tab, beautifully styled, separated Excel workbooks using openpyxl.
 """
 
@@ -104,7 +103,7 @@ def create_separated_excel(
     ws_sum.views.sheetView[0].showGridLines = True
 
     # Title
-    ws_sum["A1"] = f"Hotel Santika Depok - Spending Breakdown & Variance"
+    ws_sum["A1"] = "Hotel - Spending Breakdown & Variance"
     ws_sum["A1"].font = title_font
     ws_sum["A2"] = f"Period: {month_name} | Generated via Expense Separator App"
     ws_sum["A2"].font = subtitle_font
@@ -268,7 +267,7 @@ def create_separated_excel(
         ws_items = wb.create_sheet(title="Item Totals & Quantities")
         ws_items.views.sheetView[0].showGridLines = True
 
-        ws_items["A1"] = "Hotel Santika Depok - Item Consumption & Repeated Orders Summary"
+        ws_items["A1"] = "Hotel - Item Consumption & Repeated Orders Summary"
         ws_items["A1"].font = title_font
         ws_items["A2"] = f"Month: {month_name} | Aggregated Total Quantities and Spending per Item"
         ws_items["A2"].font = subtitle_font
@@ -538,7 +537,7 @@ def create_sr_separated_excel(
     ws_sum = wb.create_sheet(title="SR Summary")
     ws_sum.views.sheetView[0].showGridLines = True
 
-    ws_sum["A1"] = f"Hotel Santika Depok - Stock Request (SR) Separator"
+    ws_sum["A1"] = "Hotel - Stock Request (SR) Separator"
     ws_sum["A1"].font = title_font
     ws_sum["A2"] = f"{report_title} | Gudang Central Issuing to Housekeeping"
     ws_sum["A2"].font = subtitle_font

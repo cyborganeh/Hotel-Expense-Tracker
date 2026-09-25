@@ -3,7 +3,7 @@
 cd "$(dirname "$0")"
 
 echo "========================================================="
-echo "   Hotel Santika Depok - Expense Separator & Tracker     "
+echo "   Hotel - Expense Separator & Tracker     "
 echo "========================================================="
 echo "Starting Streamlit web server on http://localhost:8501..."
 echo ""

@@ -703,7 +703,7 @@ def render_monthly_tracker() -> None:
     )
 
     st.markdown('<div class="main-header">Hotel Expense Separator & Spending Tracker</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Hotel Santika Depok • Room Division & Housekeeping • Period: <b>{selected_month_name}</b></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-header">Hotel • Room Division & Housekeeping • Period: <b>{selected_month_name}</b></div>', unsafe_allow_html=True)
 
     budget_pct = (metrics['total_spent'] / metrics['total_budget'] * 100) if metrics['total_budget'] > 0 else 0
     ui_components.render_kpi_row([

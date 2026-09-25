@@ -1,5 +1,4 @@
-"""
-ui_components.py - Shared Streamlit rendering helpers for Hotel Santika Depok.
+"""ui_components.py - Shared Streamlit rendering helpers for Hotel.
 
 Single source of truth for KPI cards, shared CSS, and chart styling, used by
 both the SR Separator and the Monthly Expense Tracker so the two pages cannot

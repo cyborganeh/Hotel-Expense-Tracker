@@ -1,7 +1,7 @@
 [project]
 name = "hotel-expense-tracker"
 version = "0.1.0"
-description = "Hotel Santika Depok Expense Separator & Spending Tracker"
+description = "Hotel Expense Separator & Spending Tracker"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

@@ -1,6 +1,6 @@
 """
 sr_parser.py - Stock Request (SR) PDF Parser and Categorizer
-Hotel Santika Depok - Room Division & Housekeeping
+Hotel - Room Division & Housekeeping
 
 Parses Stock Request Consumption PDF files issued by Gudang Central (Warehouse)
 and automatically categorizes items into:
@@ -18,7 +18,7 @@ import pandas as pd
 import pymupdf
 
 
-# Complete Item Code to Category Mapping based on Hotel Santika Depok SR tracking
+# Complete Item Code to Category Mapping based on Hotel SR tracking
 ITEM_CATEGORY_MAP = {
     # --- GUEST SUPPLIES ---
     '976729': 'Guest Supplies',  # Cotton Bud

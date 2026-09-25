@@ -1,4 +1,4 @@
-# Hotel Santika Depok - Expense Separator & Spending Tracker
+# Hotel - Expense Separator & Spending Tracker
 
 A Streamlit application for Room Division and Housekeeping teams. It reconciles monthly accounting workbooks, tracks item-level spending, and separates Warehouse Central Stock Request (SR) PDFs into operational supply categories.
 

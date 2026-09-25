@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-separate_expenses.py - Command-line interface for Hotel Santika Depok Expense Separator.
+"""separate_expenses.py - Command-line interface for Hotel Expense Separator.
 Usage:
     python separate_expenses.py --input "/path/to/8.AGUSTUS" --output "Separated_Expenses_Agustus_2026.xlsx"
     python separate_expenses.py --all
@@ -102,7 +101,7 @@ def get_default_review_dir() -> str:
 VERSION = "0.1.0"
 
 def main():
-    arg_parser = argparse.ArgumentParser(description="Hotel Santika Depok - Expense Separator CLI")
+    arg_parser = argparse.ArgumentParser(description="Hotel - Expense Separator CLI")
     arg_parser.add_argument("--input", "-i", type=str, help="Path to month folder (e.g. C:/Business Review/8.AGUSTUS)")
     arg_parser.add_argument("--output", "-o", type=str, help="Output Excel filename (.xlsx)")
     arg_parser.add_argument("--month", "-m", type=str, help="Month label (e.g. 'Agustus 2026')")

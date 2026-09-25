@@ -77,7 +77,7 @@ def render_sr_separator() -> None:
         - 🧻 **Paper Supplies**: Facial tissue, hand towel, toilet roll, plastic roll.
         - 📑 **Print & Stationery**: Form blanks, staplers, tape, stationery items.
 
-        **Supported formats**: Stock Request Consumption PDFs from Hotel Santika Depok (`.pdf`).
+        **Supported formats**: Stock Request Consumption PDFs from Hotel (`.pdf`).
         """)
         return
 
@@ -97,7 +97,7 @@ def render_sr_separator() -> None:
 
     # Main Page UI
     st.markdown('<div class="main-header">Warehouse Stock Request (SR) Separator</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Hotel Santika Depok • Gudang Central Issuing to Housekeeping • <b>{sr_report_title}</b></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-header">Hotel • Gudang Central Issuing to Housekeeping • <b>{sr_report_title}</b></div>', unsafe_allow_html=True)
 
     # Top KPI Metrics
     tot_amt = sr_df['Total'].sum()

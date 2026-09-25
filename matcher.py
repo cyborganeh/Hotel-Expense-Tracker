@@ -1,5 +1,4 @@
-"""
-matcher.py - Reconciliation and enrichment engine for Hotel Santika Depok expenses.
+"""matcher.py - Reconciliation and enrichment engine for Hotel expenses.
 Joins General Ledger (DTB) transactions with Store Consumption lines and Vendor Invoices,
 matching 100% of spending back to items, vendors, and budget lines.
 """

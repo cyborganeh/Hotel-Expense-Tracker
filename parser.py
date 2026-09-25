@@ -1,5 +1,4 @@
-"""
-parser.py - Data ingestion module for Hotel Santika Depok financial Excel files.
+"""parser.py - Data ingestion module for Hotel financial Excel files.
 Parses:
   1. Detail Trial Balance (DTB)
   2. Income Statement Department (MTD)

@@ -1,4 +1,4 @@
-"""app.py - Streamlit Web Application for Hotel Santika Depok.
+"""app.py - Streamlit Web Application for Hotel.
 
 This module is intentionally thin: it only handles app-level configuration,
 theme setup, sidebar navigation, and view dispatching. All page-specific
@@ -14,6 +14,15 @@ import ui_components
 from data.months import get_default_data_dir, discover_month_folders
 from views.monthly_tracker import render_monthly_tracker
 from views.sr_separator import render_sr_separator
+
+
+def _get_logo_path() -> str:
+    """Return the path to the local hotel logo, falling back to the external URL."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    local_logo = os.path.join(base_dir, "ui", "hotel.png")
+    if os.path.exists(local_logo):
+        return local_logo
+    return "https://icons8.com/icon/TvoaAyRcCREL/hotel-building"
 
 
 # ---------------------------------------------------------------------------
@@ -35,8 +44,8 @@ if "theme_mode" not in st.session_state:
 # ---------------------------------------------------------------------------
 # Sidebar branding & theme mode choice
 # ---------------------------------------------------------------------------
-st.sidebar.image("https://icons8.com/icon/TvoaAyRcCREL/hotel-building", width=64)
-st.sidebar.title("Santika Depok")
+st.sidebar.image(_get_logo_path(), width=64)
+st.sidebar.title("Hotel")
 st.sidebar.markdown("**Room Division & Housekeeping**")
 
 theme_choice = st.sidebar.radio(
