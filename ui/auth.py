@@ -36,18 +36,57 @@ def require_auth() -> bool:
     if st.session_state.authenticated:
         return True
 
-    st.markdown("## 🔒 Hotel Spending Tracker")
-    st.markdown("Enter the password to continue.")
+    # Hide sidebar so the login screen is focused.
+    st.markdown("""
+    <style>
+        [data-testid="stSidebar"] { display: none; }
+        .login-container {
+            max-width: 420px;
+            margin: 10vh auto 0;
+            padding: 2rem;
+            border-radius: 16px;
+            background: var(--bg-card, #151C2C);
+            box-shadow: var(--card-shadow, 0 4px 16px rgba(0,0,0,0.35));
+            border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+            text-align: center;
+        }
+        .login-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+            color: var(--text-main, #F8FAFC);
+        }
+        .login-subtitle {
+            font-size: 0.95rem;
+            color: var(--text-muted, #94A3B8);
+            margin-bottom: 2rem;
+        }
+        .login-icon {
+            font-size: 3rem;
+            margin-bottom: 0.75rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-    with st.form("login_form", clear_on_submit=True):
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Log in")
-        if submitted:
-            if password and password == _load_password():
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Incorrect password.")
+    _, center_col, _ = st.columns([1, 2, 1])
+    with center_col:
+        st.markdown("""
+        <div class="login-container">
+            <div class="login-icon">🔒</div>
+            <div class="login-title">Hotel Spending Tracker</div>
+            <div class="login-subtitle">Restricted Access</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("login_form", clear_on_submit=True):
+            password = st.text_input("Password", type="password", placeholder="Enter password", label_visibility="collapsed")
+            submitted = st.form_submit_button("Log in", use_container_width=True, type="primary")
+            if submitted:
+                if password and password == _load_password():
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password. Please try again.", icon="🚫")
         return False
 
 
