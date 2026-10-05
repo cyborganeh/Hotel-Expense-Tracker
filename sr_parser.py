@@ -179,6 +179,14 @@ def parse_sr_pdf(source: Union[str, bytes, Any]) -> pd.DataFrame:
             except (IndexError, ValueError):
                 pass
 
+            # Add basic validation that extracted numbers are positive and unit is not empty
+            if not (qty > 0 and cost >= 0 and total >= 0 and unit.strip()):
+                # Fallback to default if values are nonsensical
+                qty = 1.0
+                unit = "Pcs"
+                cost = 0.0
+                total = 0.0
+
             category = categorize_item(code, name)
 
             records.append({

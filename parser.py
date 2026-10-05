@@ -38,7 +38,7 @@ ACCOUNT_MAP = {
     '0352100': 'Decoration',
     '0352200': 'Guest Supplies',
     '0352210': 'Cleaning Supplies',
-    '0352220': 'Paper Suplies',
+    '0352220': 'Paper Supplies',
     '0352300': 'Linen Repl.',
     '0352310': 'China Glass & Silver Repl',
     '0352385': 'Outsourcing Utilities',
@@ -264,9 +264,6 @@ def parse_detail_trial_balance(dtb_path: str, filter_prefix: Optional[str] = '03
         wb = openpyxl.load_workbook(dtb_path, data_only=True)
         ws = wb.active
         transactions = []
-    except Exception as e:
-        logger.error(f"Error loading Detail Trial Balance workbook: {e}")
-        raise
         current_acct_code = None
         current_acct_name = None
         current_acct_full = None

@@ -48,17 +48,6 @@ def create_separated_excel(
             raise ValueError(f"Missing required key in reconciled_data: {key}")
     
     logger.info(f"Creating separated Excel for {month_name}")
-    
-    # Validate input data
-    if not reconciled_data:
-        logger.error("No reconciled data provided")
-        raise ValueError("No reconciled data provided")
-    
-    required_keys = ['transactions', 'category_summary', 'metrics']
-    for key in required_keys:
-        if key not in reconciled_data:
-            logger.error(f"Missing required key in reconciled_data: {key}")
-            raise ValueError(f"Missing required key in reconciled_data: {key}")
 
     
     wb = openpyxl.Workbook()
@@ -458,7 +447,7 @@ def create_separated_excel(
     add_category_sheet("Guest Supplies", ["Guest Supplies"])
     add_category_sheet("Outsourcing & Laundry", ["Outsourcing Utilities", "Laundry & Dry Cleaning"])
     add_category_sheet("Cleaning Supplies", ["Cleaning Supplies"])
-    add_category_sheet("Paper Supplies", ["Paper Suplies"])
+    add_category_sheet("Paper Supplies", ["Paper Supplies"])
     add_category_sheet("Payroll & SC", [
         "Salaries & Wages", "Salaries & Wages (kary.lepas)", "Service Charge (Account Perampungan PPh)",
         "Function Allowance", "Employess Transportation", "Human Resources", "PTEB"

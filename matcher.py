@@ -175,7 +175,6 @@ def reconcile_monthly_expenses(
 
     # 2. Build Category Summary matching with Income Statement Budget & Actual
     cat_summary_rows = []
-    is_clean = is_df[~is_df['Is_Subtotal']].copy() if not is_df.empty and 'Is_Subtotal' in is_df.columns else pd.DataFrame()
     
     # Filter out subtotal rows from Income Statement for clean comparison
     is_clean = is_df[~is_df['Is_Subtotal']].copy() if not is_df.empty else pd.DataFrame()
@@ -196,7 +195,7 @@ def reconcile_monthly_expenses(
             match = is_clean[is_clean['Description'].str.strip().str.lower() == cat_name.strip().lower()]
             if match.empty and cat_name.strip():
                 # Fuzzy or partial match (escape so category names are treated literally)
-                match = is_clean[is_clean['Description'].str.contains(re.escape(cat_name[:8]), case=False, na=False)]
+                match = is_clean[is_clean['Description'].str.contains(re.escape(cat_name[:12]), case=False, na=False)]
             
             if not match.empty:
                 m_row = match.iloc[0]

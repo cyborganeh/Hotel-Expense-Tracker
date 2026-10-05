@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 import sr_parser
+import parser
 import exporter
 import ui_components
 from ui.formatting import format_idr, show_validation_banner
@@ -26,15 +27,16 @@ def render_sr_separator() -> None:
     st.sidebar.markdown("### 📦 SR Data Source")
     sr_options = []
     if has_local_sr:
-        sr_options.append("Load Local September SRs")
+        sr_options.append(f"Load Local {parser.infer_month_label(os.path.basename(BASE_SR_DIR))} SRs")
     sr_options.append("Upload SR PDFs")
 
     sr_source = st.sidebar.radio("Select Source", sr_options, index=0)
 
     sr_df = pd.DataFrame()
-    sr_report_title = "SR Report September 2026"
+    local_sr_option = f"Load Local {parser.infer_month_label(os.path.basename(BASE_SR_DIR))} SRs"
+    sr_report_title = parser.infer_month_label(os.path.basename(BASE_SR_DIR))
 
-    if sr_source == "Load Local September SRs":
+    if sr_source == local_sr_option:
         st.sidebar.markdown("**Local Folder:** `SR SEPTEMBER`")
         local_pdfs = sorted(glob.glob(os.path.join(BASE_SR_DIR, "*.pdf")))
         st.sidebar.caption(f"Found {len(local_pdfs)} PDF files:")
@@ -43,7 +45,7 @@ def render_sr_separator() -> None:
         if local_pdfs:
             with st.spinner("Parsing local SR PDF files..."):
                 sr_df = sr_parser.parse_multiple_sr_pdfs(local_pdfs)
-            sr_report_title = "SR Report September 2026"
+            sr_report_title = parser.infer_month_label(os.path.basename(BASE_SR_DIR))
 
     elif sr_source == "Upload SR PDFs":
         uploaded_pdfs = st.sidebar.file_uploader(

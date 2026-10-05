@@ -23,7 +23,7 @@ def get_default_data_dir() -> str:
     candidates = [
         os.path.join(home_dir, "Documents", "Business Review"),
         os.path.join(home_dir, "Business Review"),
-        os.path.join("C:\\", "Users", os.path.basename(home_dir), "Documents", "Business Review"),
+        os.path.join("C:\\", "Users", os.getlogin(), "Documents", "Business Review"),
         os.path.join("C:\\", "Business Review"),
     ]
     for candidate in candidates:

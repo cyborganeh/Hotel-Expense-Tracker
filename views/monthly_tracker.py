@@ -310,7 +310,7 @@ def _render_item_consumption(trx_df, item_df):
     if not filtered_items.empty:
         if sel_item_cat == "All Supplies Categories":
             filtered_items = filtered_items[filtered_items['Category'].isin([
-                'Guest Supplies', 'Paper Suplies', 'Cleaning Supplies', 'Printing & Stationery,Photo Copy, Postage & Stamp'
+                'Guest Supplies', 'Paper Supplies', 'Cleaning Supplies', 'Printing & Stationery,Photo Copy, Postage & Stamp'
             ])]
         elif sel_item_cat != "All Categories":
             filtered_items = filtered_items[filtered_items['Category'] == sel_item_cat]
@@ -598,7 +598,7 @@ def _render_mom_comparison(folders: dict, selected_month_name: str, reconciled_d
                 net_mom_pct = (net_mom / july_total * 100.0) if july_total > 0 else 0
                 ui_components.render_kpi_row([
                     {'label': (mom_current_name + ' Total').upper(), 'value': format_idr(cur_rec['metrics']['total_spent']), 'delta': None, 'show_arrow': False},
-                    {'label': (mom_previous_name + ' Total').upper(), 'value': format_idr(july_total), 'delta': None, 'show_arrow': False},
+                    {'label': ((mom_previous_name or "Previous Month") + ' Total').upper(), 'value': format_idr(july_total), 'delta': None, 'show_arrow': False},
                     {'label': 'MOM SPENDING SHIFT', 'value': format_idr(net_mom),
                      'delta': f"{net_mom_pct:+.1f}% vs previous month",
                      'delta_tone': 'neg' if net_mom > 0 else 'pos', 'show_arrow': False},
@@ -675,7 +675,7 @@ def _render_export(reconciled_data: dict, selected_month_name: str, trx_df: pd.D
         out_csv = trx_df[trx_df['Category'].isin(['Outsourcing Utilities', 'Laundry & Dry Cleaning'])].to_csv(index=False).encode('utf-8')
         st.download_button("Download Outsourcing & Laundry (CSV)", out_csv, "Outsourcing_Laundry.csv", "text/csv")
     with c3:
-        clean_csv = trx_df[trx_df['Category'].isin(['Cleaning Supplies', 'Paper Suplies'])].to_csv(index=False).encode('utf-8')
+        clean_csv = trx_df[trx_df['Category'].isin(['Cleaning Supplies', 'Paper Supplies'])].to_csv(index=False).encode('utf-8')
         st.download_button("Download Cleaning & Paper (CSV)", clean_csv, "Cleaning_Paper.csv", "text/csv")
 
     return excel_bytes
