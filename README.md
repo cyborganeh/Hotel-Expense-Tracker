@@ -1,105 +1,102 @@
-# Hotel - Expense Separator & Spending Tracker
+# Hotel Expense Tracker & SR Separator
 
-A Streamlit application for Room Division and Housekeeping teams. It reconciles monthly accounting workbooks, tracks item-level spending, and separates Warehouse Central Stock Request (SR) PDFs into operational supply categories.
-
----
-
-## 🌟 Key Features
-
-1. **Automated Monthly Expense Reconciliation**:
-   - Matches General Ledger accounts (`0351010`–`0352980`) directly with official departmental Income Statement budget lines.
-   - Links store issuing vouchers (`GDC/OUT/...`) to individual product lines in the Consumption Report (e.g. Cleo water, toilet paper, slippers, chemicals).
-   - Extracts and links vendor contracts (PT Pandu Jasa Terpadu cleaning service, Bonvivo laundry, Drop N Go, Maxindo Internet, Indovision TV cable).
-
-2. **One-Click Multi-Tab Separated Excel Exporter**:
-   - Generates a styled workbook with currency formatting (`Rp #,##0`), auto-width columns, and color-coded variance tags:
-     - 📑 **Executive Summary**: KPI metrics, budget vs. actual variance table, status badges.
-     - 📑 **All Transactions**: Master audit journal with 100% of classified transactions.
-     - 📑 **Guest Supplies**: Itemized issuing for Cleo water, slippers, toothbrush, soap, etc.
-     - 📑 **Outsourcing & Laundry**: Cleaning service, Bonvivo, Drop N Go.
-     - 📑 **Cleaning Supplies**: Cleaning chemicals, garbage bags, air freshener contract.
-     - 📑 **Paper Supplies**: Toilet rolls, facial tissue, laundry packaging bags.
-     - 📑 **Payroll & SC**: Basic salary, daily workers, transportation allowance, service charge.
-     - 📑 **Media & Utilities**: Internet (Maxindo), TV cable (MNC Sky Vision), Telkom.
-
-3. **Interactive Monthly Expense Dashboard (Streamlit & Plotly)**:
-   - **Executive Dashboard**: Donut chart of category distribution, top cost drivers, budget vs actual comparison.
-   - **Transaction Drilldown**: Search by product name, vendor, or voucher number with instant subtotal calculation.
-   - **Budget vs. Actual Variance**: Highlights over-budget categories (e.g. Music/TV +113.9%).
-   - **Month-over-Month Comparison**: Compares August 2026 vs July 2026 trends.
-   - **Data Exporter**: Download the complete separated workbook or individual category slices (CSV/Excel).
-
-4. **Warehouse Stock Request (SR) Separator**:
-   - Loads SR PDFs from the local `SR REPORT` folder or accepts multiple uploaded PDFs.
-   - Categorizes issued items into Guest Supplies, Cleaning Supplies, Paper Supplies, and Print & Stationery.
-   - Shows category totals, repeated item orders, issuing history, cost drivers, and filtered logs.
-   - Exports a separated multi-tab SR workbook.
-
-5. **Flexible Data Sources**:
-   - Select month folders from a local Business Review directory.
-   - Upload one month at a time or upload a ZIP containing multiple month folders.
+A Streamlit application for Room Division and Housekeeping teams. It reconciles monthly accounting data, tracks item-level spending, and separates warehouse stock request (SR) PDFs into operational supply categories.
 
 ---
 
-## 🚀 Quick Start
+## Overview
+
+This project combines two workflows in one app:
+
+- Monthly Expense Tracker: reconciles Detail Trial Balance (DTB), Income Statement, and Consumption data across month folders.
+- SR Separator: parses Gudang Central SR PDFs and groups them into Guest Supplies, Cleaning Supplies, Paper Supplies, and Print & Stationery.
+
+The app is intentionally organized into separate layers:
+
+- `app.py` handles app shell, auth, theme, and route selection.
+- `views/` contains dashboard-specific UI logic.
+- `data/` contains month-folder discovery and default-path resolution.
+- `ui/` contains auth, formatting, and security helpers.
+
+---
+
+## Key Features
+
+1. Monthly reconciliation dashboard
+   - Matches DTB transactions to departmental budget lines.
+   - Combines actuals from multiple sources into a single monthly view.
+   - Renders executive KPIs and category variance summaries.
+
+2. Multi-source data loading
+   - Local month folders under a chosen Business Review directory.
+   - Uploaded month Excel files.
+   - ZIP archives containing multiple month folders.
+
+3. Excel export pipeline
+   - Generates multi-tab separated workbooks for monthly reporting.
+   - Supports download of category-specific and combined outputs.
+
+4. SR PDF processing
+   - Reads SR PDFs from a local folder or uploaded files.
+   - Summarizes totals, item cost drivers, and category breakdowns.
+   - Exports a separated SR workbook.
+
+5. Authentication and hardened file handling
+   - Password-protected app access through the auth gate.
+   - Directory validation blocks dangerous system paths.
+   - Upload validation prevents oversized or unsafe files.
+
+---
+
+## Quick Start
 
 ### 1. Install dependencies
-The project requires Python 3.10 or newer. With [uv](https://docs.astral.sh/uv/) installed, dependencies are created and installed automatically when the app starts. To install them explicitly:
+
+This project requires Python 3.10 or newer.
 
 ```bash
-uv sync
-```
-
-Alternatively, install the runtime dependencies with pip:
-
-```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
+python -m pip install pytest
 ```
 
-### 2. Launch Interactive Web App
+### 2. Run the app
+
+```bash
+streamlit run app.py
+```
+
+Or use the convenience script:
+
 ```bash
 ./run.sh
 ```
-Or directly with uv:
-```bash
-uv run streamlit run app.py
-```
-Open **http://localhost:8501** in your web browser.
 
-In the sidebar, choose **Monthly Expense Tracker** or **Stock Request (SR) Separator**. The tracker can use local month folders, uploaded Excel files, or uploaded ZIP archives. The SR separator accepts PDF uploads or local PDFs under `SR REPORT`.
+Then open the local Streamlit URL, usually:
 
-### 3. Run Headless CLI Separator
-To separate a specific month folder directly into an Excel workbook:
-```bash
-uv run python3 separate_expenses.py --input "/home/rzl/Documents/Business Review/8.AGUSTUS" --output "Separated_Expenses_Agustus_2026.xlsx"
+```text
+http://localhost:8501
 ```
 
-To process all available months (August, July, June) in one command:
+---
+
+## Data Directory Setup
+
+The app looks for month data under a parent folder and automatically checks common locations such as:
+
+- `~/Documents/Business Review`
+- `~/Business Review`
+
+You can override this with the environment variable:
+
 ```bash
-uv run python3 separate_expenses.py --all
+export HOTEL_DATA_DIR="/path/to/Business Review"
 ```
 
-Show the installed CLI version:
-```bash
-uv run python3 separate_expenses.py --version
-```
+If the value is invalid or points to a blocked system path, the app ignores it and falls back to the normal default search instead of crashing.
 
-The CLI also accepts an optional month label:
-
-```bash
-uv run python3 separate_expenses.py --input "/path/to/month-folder" --month "August 2026"
-```
-
-### 4. Run automated checks
-```bash
-uv run --extra dev python -m pytest tests/ -v
-```
-
-## Data Folder Layout
-
-By default, the application looks for a Business Review folder in `~/Documents/Business Review` or `~/Business Review`. Set `HOTEL_DATA_DIR` to use another parent directory. Each month folder should contain the relevant Excel workbooks, including a Detail Trial Balance file; Income Statement and Consumption Report files are optional.
-
-For local Stock Request PDFs, place files in `SR REPORT` under the selected data directory, or set `HOTEL_SR_DIR` to a different folder:
+Expected folder layout:
 
 ```text
 Business Review/
@@ -108,35 +105,78 @@ Business Review/
 │   ├── Income Statement MTD.xlsx
 │   └── Consumption Report.xlsx
 ├── 7.JULY/
+├── 6.JUNE/
 └── SR REPORT/
-   ├── SR-001.pdf
-   └── SR-002.pdf
+    ├── SR-001.pdf
+    └── SR-002.pdf
 ```
 
-Uploaded files are processed in memory or temporary files and are not added to the repository.
+Notes:
+- Each month folder is typically discovered automatically.
+- The app warns when a selected directory is missing or invalid.
+- SR files can also be loaded from `HOTEL_SR_DIR` if that environment variable is set.
 
 ---
 
-## 📁 Project Structure
+## Authentication
 
+The app includes a simple password gate in `ui/auth.py`.
+
+Password resolution order:
+
+1. `.streamlit/secrets.toml` under `[auth] password = "..."`
+2. `HOTEL_APP_PASSWORD`
+3. built-in fallback password: `123456`
+
+This is intended for local use and should be changed before sharing the app.
+
+---
+
+## Running Tests
+
+```bash
+source .venv/bin/activate
+python -m pytest tests/test_core.py -q
 ```
+
+The current test suite covers month discovery, parsing expectations, reconciliation flow, and Excel export behavior.
+
+---
+
+## Project Structure
+
+```text
 amazing-mendel/
-├── app.py                     # Streamlit web application
-├── parser.py                  # Financial Excel parser (DTB, IS, Consumption, Laundry)
-├── matcher.py                 # Reconciliation & transaction enrichment engine
-├── exporter.py                # Multi-tab openpyxl Excel generator
-├── sr_parser.py               # Stock Request PDF parser and summaries
-├── ui_components.py            # Shared dashboard charts and KPI components
-├── requirements.txt            # pip runtime dependencies
-├── separate_expenses.py       # Standalone CLI batch runner
-├── run.sh                     # One-click startup shell script
-├── pyproject.toml             # Dependencies configuration (uv / pip)
+├── app.py
+├── parser.py
+├── matcher.py
+├── exporter.py
+├── sr_parser.py
+├── ui_components.py
+├── separate_expenses.py
+├── run.sh
+├── requirements.txt
+├── pyproject.toml
+├── README.md
+├── data/
+│   └── months.py
+├── ui/
+│   ├── auth.py
+│   ├── formatting.py
+│   └── security.py
+├── views/
+│   ├── monthly_tracker.py
+│   └── sr_separator.py
 ├── tests/
-│   └── test_core.py            # Automated tests
-└── README.md                  # Documentation
+│   └── test_core.py
+└── data/
+    └── months.py
 ```
+
+---
 
 ## Notes
 
-- Generated Excel files are written to the path supplied to the CLI or downloaded from the web app; they are not required to run the application.
-- The application uses Indonesian Rupiah (IDR) formatting and hotel-specific category matching rules.
+- Generated Excel files are stored in the output path you provide or downloaded from the app UI.
+- The app uses Indonesian Rupiah formatting and hotel-specific category matching rules.
+- The startup path now gracefully falls back when `HOTEL_DATA_DIR` is invalid instead of crashing the app.
