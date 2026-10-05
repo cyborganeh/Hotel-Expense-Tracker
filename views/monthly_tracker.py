@@ -224,6 +224,24 @@ def _load_zip_months() -> tuple:
 
 def _render_executive_dashboard(cat_df, top_items):
     """Render Executive Dashboard tab."""
+    if cat_df is None or cat_df.empty:
+        st.info("No reconciled category data is available yet. Upload or select valid month files to populate the dashboard.")
+        if top_items is not None and not top_items.empty:
+            st.subheader("Top Cost Drivers")
+            top_10 = top_items.head(10).sort_values(by="Total_Amount", ascending=True)
+            fig_cost = ui_components.themed_bar(
+                top_10,
+                x="Total_Amount",
+                y="Item_Name",
+                color="Category",
+                orientation="h",
+                labels={"Total_Amount": "Amount (IDR)", "Item_Name": "Expense Item / Vendor"},
+                height=400,
+                value_tickformat=',',
+            )
+            st.plotly_chart(fig_cost, width="stretch")
+        return
+
     col_left, col_right = st.columns([1, 1])
 
     with col_left:
@@ -251,18 +269,21 @@ def _render_executive_dashboard(cat_df, top_items):
     st.divider()
 
     st.subheader("Top 10 Largest Cost Drivers Across Hotel")
-    top_10 = top_items.head(10).sort_values(by="Total_Amount", ascending=True)
-    fig_cost = ui_components.themed_bar(
-        top_10,
-        x="Total_Amount",
-        y="Item_Name",
-        color="Category",
-        orientation="h",
-        labels={"Total_Amount": "Amount (IDR)", "Item_Name": "Expense Item / Vendor"},
-        height=400,
-        value_tickformat=',',
-    )
-    st.plotly_chart(fig_cost, width="stretch")
+    if top_items is not None and not top_items.empty:
+        top_10 = top_items.head(10).sort_values(by="Total_Amount", ascending=True)
+        fig_cost = ui_components.themed_bar(
+            top_10,
+            x="Total_Amount",
+            y="Item_Name",
+            color="Category",
+            orientation="h",
+            labels={"Total_Amount": "Amount (IDR)", "Item_Name": "Expense Item / Vendor"},
+            height=400,
+            value_tickformat=',',
+        )
+        st.plotly_chart(fig_cost, width="stretch")
+    else:
+        st.info("No cost-driver data is available for the selected period.")
 
 
 def _render_item_consumption(trx_df, item_df):
@@ -478,6 +499,10 @@ def _render_budget_variance(cat_df):
     """Render Budget vs Actual Variance tab."""
     st.subheader("Budget vs. Actual Variance Analysis")
     st.markdown("Identify budget overruns and operational savings at a glance.")
+
+    if cat_df is None or cat_df.empty:
+        st.info("No category variance data is available for this period.")
+        return
 
     over_bgt = cat_df[cat_df['Status'] == 'Over Budget']
     if not over_bgt.empty:
