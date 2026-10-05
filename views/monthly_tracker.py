@@ -35,11 +35,6 @@ def _get_month_folders():
     base_dir = st.session_state.get("selected_data_dir", get_default_data_dir())
     has_local = os.path.exists(base_dir)
     folders = discover_month_folders(base_dir)
-    if not folders:
-        folders = {
-            "August 2026 (Agustus)": os.path.join(base_dir, "8.AGUSTUS"),
-            "July 2026 (Juli)": os.path.join(base_dir, "7.JULY"),
-        }
     return base_dir, has_local, folders
 
 
@@ -59,11 +54,6 @@ def _sidebar_data_dir(base_dir: str, has_local: bool, folders: dict) -> tuple:
             st.session_state.selected_data_dir = user_data_dir
             base_dir = user_data_dir
             folders = discover_month_folders(base_dir)
-            if not folders:
-                folders = {
-                    "August 2026 (Agustus)": os.path.join(base_dir, "8.AGUSTUS"),
-                    "July 2026 (Juli)": os.path.join(base_dir, "7.JULY"),
-                }
             has_local = os.path.exists(base_dir)
 
     if not has_local:

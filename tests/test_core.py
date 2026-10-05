@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from parser import find_month_files, parse_detail_trial_balance, parse_income_statement, parse_consumption_report, parse_laundry_reports
 from matcher import reconcile_monthly_expenses
 from exporter import create_separated_excel
+from data.months import get_default_data_dir
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,13 @@ class TestFindMonthFiles:
         with tempfile.TemporaryDirectory() as tmp:
             result = find_month_files(tmp)
             assert result == {} or all(v is None for v in result.values())
+
+    def test_invalid_hotel_data_dir_falls_back_instead_of_raising(self, monkeypatch):
+        """An invalid HOTEL_DATA_DIR should be ignored and not crash startup."""
+        monkeypatch.setenv("HOTEL_DATA_DIR", "/")
+        result = get_default_data_dir()
+        assert result
+        assert result != "/"
 
 
 # ---------------------------------------------------------------------------

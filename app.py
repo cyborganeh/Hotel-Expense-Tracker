@@ -120,7 +120,10 @@ st.markdown(ui_components.get_metric_card_css(), unsafe_allow_html=True)
 # Data directory setup
 # ---------------------------------------------------------------------------
 if "selected_data_dir" not in st.session_state:
-    st.session_state.selected_data_dir = get_default_data_dir()
+    try:
+        st.session_state.selected_data_dir = get_default_data_dir()
+    except Exception:
+        st.session_state.selected_data_dir = os.path.join(os.path.expanduser("~"), "Documents", "Business Review")
 
 BASE_REVIEW_DIR = st.session_state.selected_data_dir
 st.session_state.selected_data_dir = os.path.normpath(BASE_REVIEW_DIR)
@@ -131,11 +134,6 @@ if os.path.exists(BASE_REVIEW_DIR):
         st.sidebar.error(data_dir_error)
 
 MONTH_FOLDERS = discover_month_folders(BASE_REVIEW_DIR)
-if not MONTH_FOLDERS:
-    MONTH_FOLDERS = {
-        "August 2026 (Agustus)": os.path.join(BASE_REVIEW_DIR, "8.AGUSTUS"),
-        "July 2026 (Juli)": os.path.join(BASE_REVIEW_DIR, "7.JULY"),
-    }
 has_local_folder = os.path.exists(BASE_REVIEW_DIR)
 
 # ---------------------------------------------------------------------------

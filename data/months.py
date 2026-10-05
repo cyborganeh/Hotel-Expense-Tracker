@@ -16,9 +16,8 @@ def get_default_data_dir() -> str:
     env_path = os.environ.get("HOTEL_DATA_DIR")
     if env_path:
         error = validate_data_dir(env_path)
-        if error:
-            raise ValueError(f"Invalid HOTEL_DATA_DIR: {error}")
-        return env_path
+        if not error:
+            return env_path
 
     home_dir = os.path.expanduser("~")
     candidates = [
