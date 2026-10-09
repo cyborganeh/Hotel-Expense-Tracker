@@ -20,6 +20,26 @@ logger.addHandler(logging.StreamHandler())
 logger.setLevel(logging.INFO)
 
 
+def _safe_str(row: Any, idx: Optional[int], default: str = '') -> str:
+    """Safely retrieve and strip string from row at idx without raising IndexError."""
+    if idx is not None and hasattr(row, '__len__') and 0 <= idx < len(row) and row[idx] is not None:
+        return str(row[idx]).strip()
+    return default
+
+
+def _safe_float(row: Any, idx: Optional[int], default: float = 0.0) -> float:
+    """Safely retrieve and convert float from row at idx without raising IndexError."""
+    if idx is not None and hasattr(row, '__len__') and 0 <= idx < len(row) and row[idx] is not None:
+        val = row[idx]
+        if isinstance(val, (int, float)):
+            return float(val)
+        try:
+            return float(str(val).replace(',', '').strip())
+        except (ValueError, TypeError):
+            return default
+    return default
+
+
 # Standard Account Code to Category mapping for Room Division / Housekeeping
 ACCOUNT_MAP = {
     '0351010': 'Salaries & Wages',
@@ -297,14 +317,14 @@ def parse_detail_trial_balance(dtb_path: str, filter_prefix: Optional[str] = '03
                 # Columns in DTB:
                 # 0: Date, 1: JRNL, 2: Partner, 3: Ref, 4: Source, 5: Dept, 6: Desc, 7: Beg, 8: Debit, 9: Credit, 10: Net, 11: End
                 date_val = str0[:10]
-                jrnl = str(r[1]) if r[1] is not None else ''
-                partner = str(r[2]) if r[2] is not None else ''
-                ref = str(r[3]) if r[3] is not None else ''
-                source = str(r[4]) if r[4] is not None else ''
-                dept = str(r[5]) if r[5] is not None else ''
-                desc = str(r[6]) if r[6] is not None else ''
-                debit = float(r[8]) if r[8] is not None and isinstance(r[8], (int, float)) else 0.0
-                credit = float(r[9]) if r[9] is not None and isinstance(r[9], (int, float)) else 0.0
+                jrnl = _safe_str(r, 1)
+                partner = _safe_str(r, 2)
+                ref = _safe_str(r, 3)
+                source = _safe_str(r, 4)
+                dept = _safe_str(r, 5)
+                desc = _safe_str(r, 6)
+                debit = _safe_float(r, 8)
+                credit = _safe_float(r, 9)
                 net = debit - credit
 
                 # Map to friendly category
@@ -339,7 +359,7 @@ def parse_detail_trial_balance(dtb_path: str, filter_prefix: Optional[str] = '03
 def parse_consumption_report(cons_path: str) -> pd.DataFrame:
     """
     Parses '08. Consumption Report [Month] 2026.xlsx'.
-    Reads both 'HK' and 'Guest Supplies' sheets to extract item-level transactions.
+    Reads Room Division sheets (e.g. 'HK', 'Guest Supplies', 'FO') to extract item-level transactions.
     """
     logger.info(f"Parsing Consumption Report: {cons_path}")
     
@@ -350,36 +370,97 @@ def parse_consumption_report(cons_path: str) -> pd.DataFrame:
         logger.error(f"Error loading Consumption Report workbook: {e}")
         raise
 
-    for sname in wb.sheetnames:
+    rd_patterns = [
+        r'\bHK\b', r'\bHSHK\b', r'HOUSE\s*KEEPING', r'GUEST\s*SUPPL',
+        r'GUEST', r'ROOM', r'\bFO\b', r'FRONT\s*OFFICE', r'WELCOME',
+        r'LINEN', r'LAUNDRY'
+    ]
+    exclude_patterns = [
+        r'FOOD', r'BEV', r'\bF&B\b', r'\bFB\b', r'ACCT', r'POMEC',
+        r'\bENG\b', r'MKT', r'\bHR\b', r'\bHRD\b'
+    ]
+
+    def _is_target_sheet(sname: str) -> bool:
+        s = sname.upper().strip()
+        if any(re.search(p, s) for p in exclude_patterns):
+            return False
+        return any(re.search(p, s) for p in rd_patterns)
+
+    target_sheets = [s for s in wb.sheetnames if _is_target_sheet(s)]
+    if not target_sheets:
+        target_sheets = wb.sheetnames
+
+    for sname in target_sheets:
         ws = wb[sname]
         is_guest_supplies = "GUEST" in sname.upper()
         current_acct_section = "0352200 Guest Supplies" if is_guest_supplies else "General HK"
 
+        # Default standard 2026 column indices:
+        # 0: Date, 1: No Trx, 2: Dept, 3: Process, 4: Type, 5: Item, 6: Qty, 7: Unit, 8: Price, 9: Amount
+        col_map = {
+            'date': 0, 'voucher': 1, 'dept': 2, 'process': 3,
+            'type': 4, 'item': 5, 'qty': 6, 'unit': 7,
+            'price': 8, 'amount': 9
+        }
+        date_col_found = False
+
         for row in ws.iter_rows(values_only=True):
             if not row or not any(row):
                 continue
-            
-            val0 = str(row[0]).strip() if row[0] is not None else ''
-            
+
+            # Detect header row and update column mappings if applicable
+            row_str = [str(c).upper().strip() if c is not None else '' for c in row]
+            if any('DATE' in c for c in row_str) and any('ITEM' in c or 'TRX' in c for c in row_str):
+                for idx, col_name in enumerate(row_str):
+                    if 'DATE' in col_name and not date_col_found:
+                        col_map['date'] = idx
+                        date_col_found = True
+                    elif 'TRX' in col_name or 'VOUCHER' in col_name:
+                        col_map['voucher'] = idx
+                    elif 'DEPT' in col_name:
+                        col_map['dept'] = idx
+                    elif 'PROCESS' in col_name:
+                        col_map['process'] = idx
+                    elif 'TYPE' in col_name:
+                        col_map['type'] = idx
+                    elif 'ITEM' in col_name:
+                        col_map['item'] = idx
+                    elif 'QTY' in col_name or 'QUANTITY' in col_name:
+                        col_map['qty'] = idx
+                    elif 'UNIT' in col_name or 'SATUAN' in col_name:
+                        col_map['unit'] = idx
+                    elif 'PRICE' in col_name or 'HARGA' in col_name:
+                        col_map['price'] = idx
+                    elif 'AMOUNT' in col_name or 'AMMOUNT' in col_name:
+                        col_map['amount'] = idx
+                continue
+
+            val0 = _safe_str(row, col_map.get('date', 0))
+
             # Detect section header in HK sheet (e.g. '03-52010 Uniforms')
             if '03-' in val0:
                 current_acct_section = val0
                 continue
-            
+
             # Detect transaction line (starts with date YYYY-MM-DD)
             if re.match(r'^\d{4}-\d{2}-\d{2}', val0):
-                # Standard format:
-                # 0: Date, 1: No Trx, 2: Dept, 3: Process, 4: Type, 5: Item, 6: Qty, 7: Unit, 8: Price, 9: Amount
+                if len(row) < 4:
+                    continue
+
                 trx_date = val0[:10]
-                trx_no = str(row[1]).strip() if row[1] is not None else ''
-                dept = str(row[2]).strip() if row[2] is not None else ''
-                process = str(row[3]).strip() if row[3] is not None else ''
-                trx_type = str(row[4]).strip() if row[4] is not None else ''
-                item_name = str(row[5]).strip() if row[5] is not None else ''
-                qty = float(row[6]) if row[6] is not None and isinstance(row[6], (int, float)) else 0.0
-                unit = str(row[7]).strip() if row[7] is not None else ''
-                price = float(row[8]) if row[8] is not None and isinstance(row[8], (int, float)) else 0.0
-                amount = float(row[9]) if row[9] is not None and isinstance(row[9], (int, float)) else 0.0
+                trx_no = _safe_str(row, col_map.get('voucher'))
+                dept = _safe_str(row, col_map.get('dept'))
+                process = _safe_str(row, col_map.get('process'))
+                trx_type = _safe_str(row, col_map.get('type'))
+                item_name = _safe_str(row, col_map.get('item'))
+                qty = _safe_float(row, col_map.get('qty'))
+                unit = _safe_str(row, col_map.get('unit'))
+                price = _safe_float(row, col_map.get('price'))
+                amount = _safe_float(row, col_map.get('amount'))
+
+                # Real item lines must have an item name
+                if not item_name:
+                    continue
 
                 # Derive clean item title (strip prefix digits like 974059-Cleo -> Cleo)
                 clean_name = re.sub(r'^\d+[\s\-_]+', '', item_name)

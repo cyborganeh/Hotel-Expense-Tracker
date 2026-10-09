@@ -91,6 +91,50 @@ class TestParseDetailTrialBalance:
 
 
 # ---------------------------------------------------------------------------
+# parse_consumption_report tests
+# ---------------------------------------------------------------------------
+
+class TestParseConsumptionReport:
+    def test_missing_file_raises(self):
+        """parse_consumption_report should raise when file does not exist."""
+        with pytest.raises(Exception):
+            parse_consumption_report("/nonexistent/file.xlsx")
+
+    def test_short_rows_and_pivot_tables_do_not_raise(self):
+        """parse_consumption_report should safely handle rows with fewer columns (< 4) without IndexError."""
+        import openpyxl
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            tmp_path = f.name
+
+        try:
+            wb = openpyxl.Workbook()
+            # Sheet with short rows like pivot tables (len=3, which caused IndexError: tuple index out of range)
+            ws_sr = wb.active
+            ws_sr.title = "SR Food "
+            ws_sr.append(["Row Labels", "Sum of AMMOUNT"])
+            ws_sr.append(["2026-09-03", 4528419, None])
+            ws_sr.append(["2026-09-07", 2764629])
+
+            # Sheet with proper HK transaction rows
+            ws_hk = wb.create_sheet(title="HK")
+            ws_hk.append(["DATE", "NO TRX", "DEPT", "PROCESS", "TYPE", "ITEM", "QTY", "UNIT", "PRICE", "AMMOUNT", "COA"])
+            ws_hk.append(["2026-09-08", "HK/IN/001", "Housekeeping Expense", "Housekeeping Receipts", "Receiving", "977993-Kemeja Alisan", 2, "Pcs", 165000, 330000, "03-52010 Uniforms"])
+            # Short row in HK sheet as well (e.g. trailing empty cell or note)
+            ws_hk.append(["2026-09-09", "HK/IN/002"])
+
+            wb.save(tmp_path)
+
+            df = parse_consumption_report(tmp_path)
+            assert isinstance(df, pd.DataFrame)
+            assert len(df) == 1
+            assert df.iloc[0]["Voucher_No"] == "HK/IN/001"
+            assert df.iloc[0]["Item_Name"] == "Kemeja Alisan"
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # reconcile_monthly_expenses tests
 # ---------------------------------------------------------------------------
 
