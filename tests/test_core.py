@@ -156,6 +156,44 @@ class TestReconcileMonthlyExpenses:
         result = reconcile_monthly_expenses(sample_dtb_data, sample_income_data, sample_consumption_data)
         assert isinstance(result, dict)
 
+    def test_paper_supplies_budget_matched_despite_typo(self):
+        """Paper Supplies category should match Income Statement even if spelled 'Paper Suplies'."""
+        import pandas as pd
+        dtb_df = pd.DataFrame([
+            {
+                "Date": "2026-08-01",
+                "Account_Code": "0352220",
+                "Account_Name": "Paper Supplies",
+                "Category": "Paper Supplies",
+                "Ref": "GDC/OUT-123",
+                "Source": "DTB",
+                "JRNL": "GL",
+                "Partner": "Vendor Paper",
+                "Description": "Tissue",
+                "Net_Amount": 4163210.0,
+            }
+        ])
+        # Income statement has 'Paper Suplies' (with one 'p')
+        is_df = pd.DataFrame([
+            {
+                "Account_Code": "0352220",
+                "Account_Name": "Paper Suplies",
+                "Description": "Paper Suplies",
+                "Budget": 4300000.0,
+                "Actual": 4163210.0,
+                "Ratio_Pct": 0.33,
+                "Is_Subtotal": False,
+                "Department": "Room Division",
+                "Group": "Other Expenses",
+            }
+        ])
+        result = reconcile_monthly_expenses(dtb_df, is_df, pd.DataFrame())
+        cat_df = result["category_summary"]
+        paper_row = cat_df[cat_df["Category"] == "Paper Supplies"]
+        assert not paper_row.empty
+        assert paper_row.iloc[0]["Budget"] == 4300000.0
+        assert paper_row.iloc[0]["Status"] == "Under Budget"
+
 
 # ---------------------------------------------------------------------------
 # create_separated_excel tests

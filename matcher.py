@@ -15,6 +15,14 @@ logger.addHandler(logging.StreamHandler())
 logger.setLevel(logging.INFO)
 
 
+def _normalize_category_name(name: Any) -> str:
+    """Normalize category / description name for robust matching (handles whitespace, punctuation, typos like 'suplies')."""
+    s = str(name).strip().lower()
+    # Normalize common spelling variants e.g. suplies -> supplies
+    s = re.sub(r'\bsuplies\b', 'supplies', s)
+    return re.sub(r'\s+', ' ', s)
+
+
 def reconcile_monthly_expenses(
     dtb_df: pd.DataFrame,
     is_df: pd.DataFrame,
@@ -192,10 +200,19 @@ def reconcile_monthly_expenses(
         group_type = 'Other Expenses'
 
         if not is_clean.empty:
-            match = is_clean[is_clean['Description'].str.strip().str.lower() == cat_name.strip().lower()]
+            norm_cat = _normalize_category_name(cat_name)
+            # Direct match using normalized name (handles casing, extra spaces, and typos like 'suplies')
+            match = is_clean[is_clean['Description'].apply(_normalize_category_name) == norm_cat]
             if match.empty and cat_name.strip():
                 # Fuzzy or partial match (escape so category names are treated literally)
                 match = is_clean[is_clean['Description'].str.contains(re.escape(cat_name[:12]), case=False, na=False)]
+            if match.empty and norm_cat:
+                # Token-based match (all significant words in category exist in description)
+                tokens = [t for t in norm_cat.split() if len(t) > 2]
+                if tokens:
+                    match = is_clean[is_clean['Description'].apply(
+                        lambda d: all(t in _normalize_category_name(d) for t in tokens)
+                    )]
             
             if not match.empty:
                 m_row = match.iloc[0]

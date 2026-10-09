@@ -213,6 +213,10 @@ def parse_income_statement(is_path: str) -> pd.DataFrame:
                 continue
             
             line_str = str(col1).strip()
+
+            # Normalize common accounting template typos (e.g. 'Paper Suplies' -> 'Paper Supplies')
+            if re.sub(r'\s+', ' ', line_str).lower() == 'paper suplies':
+                line_str = 'Paper Supplies'
             
             # Detect group headers
             if "Payroll" in line_str:
