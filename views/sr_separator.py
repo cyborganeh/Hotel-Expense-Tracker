@@ -1,5 +1,6 @@
 """Warehouse Stock Request (SR) Separator view."""
 import glob
+import hashlib
 import os
 import re
 
@@ -86,9 +87,50 @@ def render_sr_separator() -> None:
         """)
         return
 
-    # Generate Excel export buffer
-    excel_sr_bytes = exporter.create_sr_separated_excel(sr_df, sr_report_title)
+    # Main Page UI
+    st.markdown('<div class="main-header">Warehouse Stock Request (SR) Separator</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-header">Hotel • Gudang Central Issuing to Housekeeping • <b>{sr_report_title}</b></div>', unsafe_allow_html=True)
 
+    identity_columns = [column for column in ['Date', 'SR_Number', 'Item_Code', 'Qty', 'Total'] if column in sr_df]
+    period_identity = sr_report_title + "\x1f" + sr_df[identity_columns].to_csv(index=False)
+    period_key = hashlib.sha256(period_identity.encode("utf-8")).hexdigest()[:12]
+    input_col_occupancy, input_col_rooms_sold = st.columns(2)
+    with input_col_occupancy:
+        occupancy_pct = st.number_input(
+            "Occupancy (%)", min_value=0.0, max_value=100.0, value=0.0,
+            step=0.1, format="%.1f", key=f"sr_occupancy_{period_key}"
+        )
+    with input_col_rooms_sold:
+        total_rooms_sold = st.number_input(
+            "Total Room Sold", min_value=0, value=0, step=1,
+            key=f"sr_rooms_sold_{period_key}"
+        )
+
+    # Top KPI Metrics
+    tot_amt = sr_df['Total'].sum()
+    tot_qty = sr_df['Qty'].sum()
+    tot_items = sr_df['Item_Name'].nunique()
+    tot_order = sr_df['SR_Number'].nunique()
+    rooms_sold_valid = total_rooms_sold > 0
+    spend_per_room_sold = tot_amt / total_rooms_sold if rooms_sold_valid else None
+
+    st.markdown("#### Period Performance")
+    ui_components.render_kpi_row([
+        {'label': 'OCCUPANCY', 'value': f"{occupancy_pct:.1f}%",
+         'delta': 'Period input', 'delta_tone': 'neutral', 'show_arrow': False},
+        {'label': 'ROOMS SOLD', 'value': f"{total_rooms_sold:,.0f}",
+         'delta': 'Period total', 'delta_tone': 'neutral', 'show_arrow': False},
+        {'label': 'SR SPEND / ROOM SOLD',
+         'value': format_idr(spend_per_room_sold) if rooms_sold_valid else 'N/A',
+         'delta': 'Total SR spend per room sold', 'delta_tone': 'neutral', 'show_arrow': False},
+    ])
+
+    excel_sr_bytes = exporter.create_sr_separated_excel(
+        sr_df,
+        sr_report_title,
+        occupancy_pct=occupancy_pct,
+        total_rooms_sold=total_rooms_sold,
+    )
     st.sidebar.divider()
     st.sidebar.markdown("### 📥 Quick Export")
     safe_title = safe_filename(sr_report_title, default="SR_Report")
@@ -100,16 +142,6 @@ def render_sr_separator() -> None:
         width="stretch",
         type="primary"
     )
-
-    # Main Page UI
-    st.markdown('<div class="main-header">Warehouse Stock Request (SR) Separator</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Hotel • Gudang Central Issuing to Housekeeping • <b>{sr_report_title}</b></div>', unsafe_allow_html=True)
-
-    # Top KPI Metrics
-    tot_amt = sr_df['Total'].sum()
-    tot_qty = sr_df['Qty'].sum()
-    tot_items = sr_df['Item_Name'].nunique()
-    tot_order = sr_df['SR_Number'].nunique()
 
     ui_components.render_kpi_row([
         {'label': 'TOTAL SPEND (SR)', 'value': format_idr(tot_amt),
@@ -140,6 +172,10 @@ def render_sr_separator() -> None:
         col_ch1, col_ch2 = st.columns([1, 1])
 
         cat_sum = sr_parser.get_category_summary(sr_df)
+        cat_sum['Spend_Per_Room_Sold'] = (
+            cat_sum['Total_Amount'].div(total_rooms_sold).apply(format_idr)
+            if rooms_sold_valid else 'N/A'
+        )
 
         with col_ch1:
             st.markdown("#### Spending Share by Category")
@@ -166,6 +202,7 @@ def render_sr_separator() -> None:
         disp_cat['Total_Qty'] = disp_cat['Total_Qty'].apply(lambda x: f"{x:,.0f}")
         disp_cat['Total_Amount'] = disp_cat['Total_Amount'].apply(format_idr)
         disp_cat['Pct_Of_Total'] = disp_cat['Pct_Of_Total'].apply(lambda x: f"{x:.1f}%")
+        disp_cat['Spend_Per_Room_Sold'] = disp_cat['Spend_Per_Room_Sold'].astype(str)
         st.dataframe(disp_cat, width="stretch", hide_index=True)
 
     # Helper function for rendering a category tab
@@ -180,13 +217,21 @@ def render_sr_separator() -> None:
         cat_amt = c_items['Total_Amount'].sum()
         cat_q = c_items['Total_Qty'].sum()
         pct_all = (cat_amt / tot_amt * 100.0) if tot_amt > 0 else 0.0
+        cat_spend_per_room_sold = cat_amt / total_rooms_sold if rooms_sold_valid else None
 
         st.markdown(f"### {emoji} {category_name}")
-        st.markdown(f"**Total Spend:** {format_idr(cat_amt)} ({pct_all:.1f}% of SR spend) • **Total Qty:** {cat_q:,.0f} • **Unique Items:** {len(c_items)}")
+        cat_spend_per_room_text = format_idr(cat_spend_per_room_sold) if rooms_sold_valid else 'N/A'
+        st.markdown(f"**Total Spend:** {format_idr(cat_amt)} ({pct_all:.1f}% of SR spend) • **Spend / Room Sold:** {cat_spend_per_room_text} • **Total Qty:** {cat_q:,.0f} • **Unique Items:** {len(c_items)}")
 
         st.markdown("#### Item Totals Summary (Repeated Orders Aggregated)")
         disp_items = c_items.copy()
+        disp_items['Qty_Per_Room_Sold'] = (
+            disp_items['Total_Qty'] / total_rooms_sold if rooms_sold_valid else 'N/A'
+        )
         disp_items['Total_Qty'] = disp_items['Total_Qty'].apply(lambda x: f"{x:,.0f}")
+        disp_items['Qty_Per_Room_Sold'] = disp_items['Qty_Per_Room_Sold'].apply(
+            lambda x: f"{x:,.4f}" if rooms_sold_valid else x
+        )
         disp_items['Avg_Cost'] = disp_items['Avg_Cost'].apply(format_idr)
         disp_items['Total_Amount'] = disp_items['Total_Amount'].apply(format_idr)
         st.dataframe(disp_items, width="stretch", hide_index=True)
@@ -241,11 +286,11 @@ def render_sr_separator() -> None:
         st.markdown("### 📥 Excel Export - Separated Stock Request Report")
         st.markdown("""
         The generated Excel workbook contains multiple pre-styled tabs matching the hotel standard format:
-        - 📊 **SR Summary**: KPI metrics, category spend breakdown, % shares, and top 10 cost drivers.
-        - 🛎️ **Guest Supplies**: Item summary totals + chronological issuing history.
-        - 🧹 **Cleaning Supplies**: Chemical and trash bag item summary + order log.
-        - 🧻 **Paper Supplies**: Facial tissue, hand towel, and toilet tissue totals + order log.
-        - 📑 **Print & Stationery**: Form and office supply totals + order log.
+        - 📊 **SR Summary**: Period occupancy, room sold, spend per room sold, category breakdown, and top 10 cost drivers.
+        - 🛎️ **Guest Supplies**: Item quantities per room sold + chronological issuing history.
+        - 🧹 **Cleaning Supplies**: Item quantities per room sold + order log.
+        - 🧻 **Paper Supplies**: Item quantities per room sold + order log.
+        - 📑 **Print & Stationery**: Item quantities per room sold + order log.
         - 📋 **All SR Items**: Complete line item audit table.
         """)
 

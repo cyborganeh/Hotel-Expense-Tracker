@@ -478,7 +478,9 @@ def create_separated_excel(
 def create_sr_separated_excel(
     sr_df: pd.DataFrame,
     report_title: str = "Stock Request Separated Report",
-    output_path: Optional[str] = None
+    output_path: Optional[str] = None,
+    occupancy_pct: Optional[float] = None,
+    total_rooms_sold: Optional[int] = None,
 ) -> bytes:
     """
     Builds a multi-tab separated Excel workbook for Stock Requests:
@@ -522,6 +524,9 @@ def create_sr_separated_excel(
     total_qty = sr_df['Qty'].sum() if not sr_df.empty else 0.0
     total_items = len(sr_df) if not sr_df.empty else 0
     unique_srs = sr_df['SR_Number'].nunique() if not sr_df.empty else 0
+    rooms_sold_value = total_rooms_sold if total_rooms_sold is not None else 0
+    rooms_sold_valid = rooms_sold_value > 0
+    total_spend_per_room_sold = total_amount / rooms_sold_value if rooms_sold_valid else "N/A"
 
     # ==========================================
     # SHEET 1: SR Executive Summary
@@ -540,6 +545,9 @@ def create_sr_separated_excel(
         ("TOTAL QUANTITY", total_qty, "QTY", 3),
         ("LINE ITEMS", total_items, "COUNT", 5),
         ("SR ORDERS", unique_srs, "COUNT", 7),
+        ("OCCUPANCY", occupancy_pct / 100.0 if occupancy_pct is not None else "N/A", "PCT", 9),
+        ("ROOMS SOLD", total_rooms_sold if total_rooms_sold is not None else "N/A", "COUNT", 11),
+        ("SR SPEND / ROOM SOLD", total_spend_per_room_sold, "IDR", 13),
     ]
 
     for label, val, val_type, col in kpis:
@@ -559,12 +567,17 @@ def create_sr_separated_excel(
         c_val.font = Font(name="Calibri", size=14, bold=True, color="1E3A8A")
         c_val.alignment = Alignment(horizontal="center", vertical="center")
         c_val.fill = light_blue_fill
-        c_val.number_format = num_format_currency if val_type in ("IDR", "QTY") else "#,##0"
+        if val_type in ("IDR", "QTY"):
+            c_val.number_format = num_format_currency
+        elif val_type == "PCT":
+            c_val.number_format = num_format_pct
+        else:
+            c_val.number_format = "#,##0"
 
     # Category Summary Table
     ws_sum.cell(7, 1, "SEPARATED SPENDING BY CATEGORY").font = bold_font
 
-    headers_cat = ["Category", "Unique Items", "Total Quantity", "Total Amount (IDR)", "% of Total Spend", "Issuing Count"]
+    headers_cat = ["Category", "Unique Items", "Total Quantity", "Total Amount (IDR)", "% of Total Spend", "Issuing Count", "Spend / Room Sold (IDR)"]
     for c_idx, h in enumerate(headers_cat, 1):
         cell = ws_sum.cell(8, c_idx, h)
         cell.font = white_bold
@@ -580,6 +593,7 @@ def create_sr_separated_excel(
         c_items = cat_data['Item_Name'].nunique() if not cat_data.empty else 0
         c_count = len(cat_data) if not cat_data.empty else 0
         c_pct = (c_amt / total_amount) if total_amount > 0 else 0.0
+        c_spend_per_room_sold = c_amt / rooms_sold_value if rooms_sold_valid else "N/A"
 
         ws_sum.cell(curr_r, 1, cat).font = bold_font
         ws_sum.cell(curr_r, 2, c_items).font = regular_font
@@ -596,8 +610,10 @@ def create_sr_separated_excel(
 
         ws_sum.cell(curr_r, 6, c_count).font = regular_font
         ws_sum.cell(curr_r, 6).alignment = Alignment(horizontal="center")
+        ws_sum.cell(curr_r, 7, c_spend_per_room_sold).font = regular_font
+        ws_sum.cell(curr_r, 7).number_format = num_format_currency
 
-        for col_i in range(1, 7):
+        for col_i in range(1, 8):
             ws_sum.cell(curr_r, col_i).border = thin_border
         curr_r += 1
 
@@ -611,8 +627,10 @@ def create_sr_separated_excel(
     ws_sum.cell(curr_r, 5).number_format = num_format_pct
     ws_sum.cell(curr_r, 6, f"=SUM(F9:F{curr_r-1})").font = bold_font
     ws_sum.cell(curr_r, 6).alignment = Alignment(horizontal="center")
+    ws_sum.cell(curr_r, 7, total_spend_per_room_sold).font = bold_font
+    ws_sum.cell(curr_r, 7).number_format = num_format_currency
 
-    for col_i in range(1, 7):
+    for col_i in range(1, 8):
         ws_sum.cell(curr_r, col_i).border = total_border
 
     # Top 10 Cost Drivers
@@ -681,7 +699,7 @@ def create_sr_separated_excel(
             Order_Count=('SR_Number', 'nunique')
         ).sort_values(by='Total_Amount', ascending=False).reset_index(drop=True)
 
-        headers_item = ["Item Code", "Item Name", "Total Qty", "Unit", "Avg Unit Cost (IDR)", "Total Spend (IDR)", "% of Category", "Orders Count"]
+        headers_item = ["Item Code", "Item Name", "Total Qty", "Unit", "Avg Unit Cost (IDR)", "Total Spend (IDR)", "% of Category", "Orders Count", "Qty / Room Sold"]
         for c_idx, h in enumerate(headers_item, 1):
             cell = ws.cell(5, c_idx, h)
             cell.font = white_bold
@@ -706,8 +724,11 @@ def create_sr_separated_excel(
             ws.cell(r, 7).number_format = num_format_pct
             ws.cell(r, 8, row['Order_Count']).font = regular_font
             ws.cell(r, 8).alignment = Alignment(horizontal="center")
+            qty_per_room_sold = row['Total_Qty'] / rooms_sold_value if rooms_sold_valid else "N/A"
+            ws.cell(r, 9, qty_per_room_sold).font = regular_font
+            ws.cell(r, 9).number_format = "#,##0.0000"
 
-            for col_i in range(1, 9):
+            for col_i in range(1, 10):
                 ws.cell(r, col_i).border = thin_border
             r += 1
 
@@ -717,7 +738,7 @@ def create_sr_separated_excel(
         ws.cell(r, 3).number_format = "#,##0"
         ws.cell(r, 6, f"=SUM(F{start_item_r}:F{r-1})").font = bold_font
         ws.cell(r, 6).number_format = num_format_currency
-        for col_i in range(1, 9):
+        for col_i in range(1, 10):
             ws.cell(r, col_i).border = total_border
 
         # 2. Detailed Issuing History (Chronological)

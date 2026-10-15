@@ -186,17 +186,31 @@ def themed_donut(
     hole: float = 0.45,
     height: int = 320,
     showlegend: bool = True,
+    text_size: int = 15,
+    textinfo: str = "percent+label",
+    legend_size: int = 13,
+    margin: Optional[Dict[str, int]] = None,
 ) -> "plotly.graph_objects.Figure":
-    """Category donut chart using the themed palette."""
+    """Category donut chart using the themed palette.
+
+    text_size   - font size of the on-slice labels (px)
+    textinfo    - plotly textinfo mask, e.g. 'percent+label', 'value', 'none'
+    legend_size - font size of the legend entries (px)
+    """
     fig = px.pie(df, names=names, values=values, hole=hole, color=names)
-    fig.update_traces(textposition="auto", textinfo="percent+label")
+    fig.update_traces(
+        textposition="auto",
+        textinfo=textinfo,
+        textfont=dict(size=text_size),
+    )
     fig.update_layout(
         template=get_plotly_template(),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        margin=CHART_MARGINS,
+        margin=margin or CHART_MARGINS,
         height=height,
         showlegend=showlegend,
+        legend=dict(font=dict(size=legend_size)),
     )
     return fig
 

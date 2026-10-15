@@ -2,15 +2,17 @@
 import os
 import sys
 import tempfile
+from io import BytesIO
 import pytest
 import pandas as pd
+import openpyxl
 
 # Ensure project root is on the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from parser import find_month_files, parse_detail_trial_balance, parse_income_statement, parse_consumption_report, parse_laundry_reports
 from matcher import reconcile_monthly_expenses
-from exporter import create_separated_excel
+from exporter import create_separated_excel, create_sr_separated_excel
 from data.months import get_default_data_dir
 
 
@@ -236,6 +238,66 @@ class TestCreateSeparatedExcel:
         finally:
             if os.path.exists(output_path):
                 os.unlink(output_path)
+
+
+class TestCreateSRSeparatedExcel:
+    @pytest.fixture
+    def sr_data(self):
+        return pd.DataFrame([
+            {
+                "Date": "2026-10-01", "SR_Number": "SR-001", "Requested_By": "HK",
+                "Item_Code": "976744", "Item_Name": "Soap", "Category": "Guest Supplies",
+                "Qty": 10.0, "Unit": "Pcs", "Cost": 10000.0, "Total": 100000.0,
+            },
+            {
+                "Date": "2026-10-02", "SR_Number": "SR-002", "Requested_By": "HK",
+                "Item_Code": "976802", "Item_Name": "Facial Tissue", "Category": "Paper Supplies",
+                "Qty": 4.0, "Unit": "Box", "Cost": 5000.0, "Total": 20000.0,
+            },
+        ])
+
+    def test_export_includes_period_and_per_room_sold_metrics(self, sr_data):
+        workbook_bytes = create_sr_separated_excel(
+            sr_data, occupancy_pct=75.5, total_rooms_sold=50
+        )
+        workbook = openpyxl.load_workbook(BytesIO(workbook_bytes), data_only=True)
+        summary = workbook["SR Summary"]
+
+        assert summary["I5"].value == 0.755
+        assert summary["I5"].number_format == "0.0%"
+        assert summary["K5"].value == 50
+        assert summary["M5"].value == 2400
+
+        category_headers = {summary.cell(8, col).value: col for col in range(1, 8)}
+        spend_per_room_col = category_headers["Spend / Room Sold (IDR)"]
+        assert summary.cell(9, spend_per_room_col).value == 2000
+        assert summary.cell(11, spend_per_room_col).value == 400
+
+        guest_sheet = workbook["Guest Supplies"]
+        item_headers = {guest_sheet.cell(5, col).value: col for col in range(1, 10)}
+        qty_per_room_col = item_headers["Qty / Room Sold"]
+        assert guest_sheet.cell(6, qty_per_room_col).value == 0.2
+
+        different_occupancy = openpyxl.load_workbook(
+            BytesIO(create_sr_separated_excel(sr_data, occupancy_pct=40, total_rooms_sold=50)),
+            data_only=True,
+        )
+        assert different_occupancy["SR Summary"]["M5"].value == summary["M5"].value
+        assert different_occupancy["SR Summary"].cell(9, spend_per_room_col).value == 2000
+
+    def test_zero_rooms_sold_marks_ratios_unavailable(self, sr_data):
+        workbook_bytes = create_sr_separated_excel(
+            sr_data, occupancy_pct=0, total_rooms_sold=0
+        )
+        workbook = openpyxl.load_workbook(BytesIO(workbook_bytes), data_only=True)
+        summary = workbook["SR Summary"]
+        category_headers = {summary.cell(8, col).value: col for col in range(1, 8)}
+
+        assert summary["M5"].value == "N/A"
+        assert summary.cell(9, category_headers["Spend / Room Sold (IDR)"]).value == "N/A"
+        guest_sheet = workbook["Guest Supplies"]
+        item_headers = {guest_sheet.cell(5, col).value: col for col in range(1, 10)}
+        assert guest_sheet.cell(6, item_headers["Qty / Room Sold"]).value == "N/A"
 
 
 # ---------------------------------------------------------------------------
