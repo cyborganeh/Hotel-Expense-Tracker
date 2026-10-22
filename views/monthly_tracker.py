@@ -225,7 +225,10 @@ def _load_zip_months() -> tuple:
 def _render_executive_dashboard(cat_df, top_items):
     """Render Executive Dashboard tab."""
     if cat_df is None or cat_df.empty:
-        st.info("No reconciled category data is available yet. Upload or select valid month files to populate the dashboard.")
+        ui_components.render_empty_state(
+            "No reconciled category data is available yet.",
+            "Upload or select valid month files to populate the dashboard.",
+        )
         if top_items is not None and not top_items.empty:
             st.subheader("Top Cost Drivers")
             top_10 = top_items.head(10).sort_values(by="Total_Amount", ascending=True)
@@ -283,7 +286,9 @@ def _render_executive_dashboard(cat_df, top_items):
         )
         st.plotly_chart(fig_cost, width="stretch")
     else:
-        st.info("No cost-driver data is available for the selected period.")
+        ui_components.render_empty_state(
+            "No cost-driver data is available for the selected period."
+        )
 
 
 def _render_item_consumption(trx_df, item_df):
@@ -421,7 +426,7 @@ def _render_item_consumption(trx_df, item_df):
             mime="text/csv"
         )
     else:
-        st.info("No items match the selected criteria.")
+        ui_components.render_empty_state("No items match the selected criteria.")
 
 
 def _render_transaction_drilldown(trx_df):
@@ -501,7 +506,7 @@ def _render_budget_variance(cat_df):
     st.markdown("Identify budget overruns and operational savings at a glance.")
 
     if cat_df is None or cat_df.empty:
-        st.info("No category variance data is available for this period.")
+        ui_components.render_empty_state("No category variance data is available for this period.")
         return
 
     over_bgt = cat_df[cat_df['Status'] == 'Over Budget']
@@ -511,8 +516,6 @@ def _render_budget_variance(cat_df):
         for i, (_, row) in enumerate(over_bgt.iterrows()):
             with cols[i % len(cols)]:
                 st.error(f"**{row['Category']}**\n\nActual: {format_idr(row['Actual'])}\n\nBudget: {format_idr(row['Budget'])}\n\n**Over by {format_idr(row['Variance_IDR'])} (+{row['Variance_Pct']:.1f}%)**")
-
-    st.markdown("<br>", unsafe_allow_html=True)
 
     var_display = cat_df[[
         'Category', 'Group', 'Budget', 'Actual', 'Variance_IDR', 'Variance_Pct', 'Status', 'Top_Item', 'Transaction_Count'
@@ -558,14 +561,14 @@ def _render_mom_comparison(folders: dict, selected_month_name: str, reconciled_d
         mom_current_label = mom_previous_label = None
         mom_current_name = mom_previous_name = None
         mom_current_dir = mom_previous_dir = None
-        st.info("Not enough month folders configured for MoM comparison.")
+        ui_components.render_empty_state("Not enough month folders configured for MoM comparison.")
 
     if mom_current_dir and mom_previous_dir:
         mom_current_files = parser.find_month_files(mom_current_dir)
         mom_previous_files = parser.find_month_files(mom_previous_dir)
 
         if not mom_previous_files['dtb']:
-            st.info("Previous month data not found for MoM comparison.")
+            ui_components.render_empty_state("Previous month data not found for MoM comparison.")
         else:
             if (selected_month_name == mom_current_name
                     and mom_current_files['dtb']):
@@ -583,7 +586,7 @@ def _render_mom_comparison(folders: dict, selected_month_name: str, reconciled_d
                 j_rec = matcher.reconcile_monthly_expenses(j_dtb, j_is, j_cons)
 
             if cur_rec['metrics']['transaction_count'] == 0 or j_rec['metrics']['transaction_count'] == 0:
-                st.info("Previous month data not found for MoM comparison.")
+                ui_components.render_empty_state("Previous month data not found for MoM comparison.")
             else:
                 a_cat = cur_rec['category_summary'][['Category', 'Actual']].rename(columns={'Actual': 'August_Actual'})
                 j_cat = j_rec['category_summary'][['Category', 'Actual']].rename(columns={'Actual': 'July_Actual'})
@@ -665,7 +668,6 @@ def _render_export(reconciled_data: dict, selected_month_name: str, trx_df: pd.D
         type="primary"
     )
 
-    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("#### Individual Category Quick Exports (CSV)")
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -706,7 +708,9 @@ def render_monthly_tracker() -> None:
         reconciled_data, selected_month_name = result if result[0] is not None else (None, "")
 
     if not reconciled_data:
-        st.info("Please select or upload Excel files from the sidebar to begin.")
+        st.markdown('<div class="main-header">Hotel Expense Separator & Spending Tracker</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Hotel • Room Division & Housekeeping</div>', unsafe_allow_html=True)
+        ui_components.render_empty_state("Please select or upload Excel files from the sidebar to begin.")
         return
 
     metrics = reconciled_data['metrics']

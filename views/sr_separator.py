@@ -73,8 +73,11 @@ def render_sr_separator() -> None:
                 with st.spinner(f"Parsing {len(uploaded_pdfs)} SR PDF(s)..."):
                     sr_df = sr_parser.parse_multiple_sr_pdfs(uploaded_pdfs)
 
+    st.markdown('<div class="main-header">Warehouse Stock Request (SR) Separator</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sub-header">Hotel • Gudang Central Issuing to Housekeeping • <b>{sr_report_title}</b></div>', unsafe_allow_html=True)
+
     if sr_df.empty:
-        st.info("👈 Please select or upload Stock Request (SR) PDF files from the sidebar to begin.")
+        ui_components.render_empty_state("👈 Please select or upload Stock Request (SR) PDF files from the sidebar to begin.")
         st.markdown("""
         ### About Warehouse Stock Request (SR) Separator
         This tool extracts items from Gudang Central Stock Request PDFs and separates them automatically into:
@@ -86,10 +89,6 @@ def render_sr_separator() -> None:
         **Supported formats**: Stock Request Consumption PDFs from Hotel (`.pdf`).
         """)
         return
-
-    # Main Page UI
-    st.markdown('<div class="main-header">Warehouse Stock Request (SR) Separator</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sub-header">Hotel • Gudang Central Issuing to Housekeeping • <b>{sr_report_title}</b></div>', unsafe_allow_html=True)
 
     identity_columns = [column for column in ['Date', 'SR_Number', 'Item_Code', 'Qty', 'Total'] if column in sr_df]
     period_identity = sr_report_title + "\x1f" + sr_df[identity_columns].to_csv(index=False)
@@ -211,7 +210,7 @@ def render_sr_separator() -> None:
         c_trxs = sr_df[sr_df['Category'] == category_name].sort_values(by=['Date', 'Item_Name'])
 
         if c_items.empty:
-            st.info(f"No {category_name} items recorded in the uploaded SR files.")
+            ui_components.render_empty_state(f"No {category_name} items recorded in the uploaded SR files.")
             return
 
         cat_amt = c_items['Total_Amount'].sum()

@@ -54,67 +54,90 @@ if "theme_mode" not in st.session_state:
 # ---------------------------------------------------------------------------
 logo_path = _get_logo_path()
 if logo_path:
-    st.sidebar.image(logo_path, width=64)
-st.sidebar.title("Hotel")
-st.sidebar.markdown("**Room Division & Housekeeping**")
+    st.sidebar.image(logo_path, width=44)
+st.sidebar.markdown(
+    """
+    <div class="sidebar-brand">
+        <div class="brand-name">Hotel</div>
+        <div class="brand-role">Room Division &amp; Housekeeping</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 theme_choice = st.sidebar.radio(
     "Theme Appearance",
-    ["🌙 Dark Mode", "☀️ Light Mode"],
+    ["Dark Mode", "Light Mode"],
     index=0 if st.session_state["theme_mode"] == "dark" else 1,
     horizontal=True,
     key="theme_mode_selector"
 )
 st.session_state["theme_mode"] = "dark" if "Dark" in theme_choice else "light"
 is_dark = st.session_state["theme_mode"] == "dark"
+st.session_state["plotly_text_color"] = "#E8EEE8" if is_dark else "#202820"
 
-# Apply theme CSS variables based on session state
-theme_mode = st.session_state.get("theme_mode", "dark")
-st.markdown(f"""
-<script>
-    document.documentElement.setAttribute('data-theme', '{theme_mode}');
-</script>
-""", unsafe_allow_html=True)
-
-# Theme CSS variables (dark defaults + light overrides)
-st.markdown("""
-<style>
-    :root {
-        --bg-main: #0B0F19;
-        --bg-card: #151C2C;
-        --bg-card-hover: #1A2338;
-        --bg-sidebar: #080D1A;
-        --text-main: #F8FAFC;
-        --text-muted: #94A3B8;
-        --border-subtle: rgba(255, 255, 255, 0.08);
-        --border-hover: rgba(59, 130, 246, 0.5);
-        --accent: #3B82F6;
-        --delta-pos: #34D399;
-        --delta-neg: #F87171;
-        --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-        --card-shadow-hover: 0 6px 22px rgba(0, 0, 0, 0.5);
-    }
-
-    [data-theme="light"] {
-        --bg-main: #F8FAFC;
+# Theme CSS variables. Tokens live here only; components consume var() so both
+# modes stay in sync. The active token set is selected at render time because
+# a script-injected html[data-theme] attribute is not reliable in Streamlit.
+if is_dark:
+    theme_tokens = """
+        --bg-main: #111713;
+        --bg-card: #171F19;
+        --bg-card-hover: #202A22;
+        --bg-sidebar: #0D130F;
+        --text-main: #E8EEE8;
+        --text-muted: #A3ADA4;
+        --border-subtle: rgba(225, 238, 226, 0.12);
+        --border-hover: rgba(139, 174, 114, 0.65);
+        --accent: #8BAE72;
+        --text-on-accent: #142018;
+        --delta-pos: #8FC18B;
+        --delta-neg: #E28C78;
+        --card-shadow: none;
+        --card-shadow-hover: none;
+    """
+else:
+    theme_tokens = """
+        --bg-main: #F3F5F0;
         --bg-card: #FFFFFF;
-        --bg-card-hover: #F1F5F9;
-        --bg-sidebar: #FFFFFF;
-        --text-main: #0F172A;
-        --text-muted: #475569;
-        --border-subtle: #E2E8F0;
-        --border-hover: rgba(37, 99, 235, 0.45);
-        --accent: #2563EB;
-        --delta-pos: #15803D;
-        --delta-neg: #DC2626;
-        --card-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
-        --card-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.08);
-    }
+        --bg-card-hover: #E9EEE7;
+        --bg-sidebar: #F8F9F6;
+        --text-main: #202820;
+        --text-muted: #5F6B60;
+        --border-subtle: #D8DED6;
+        --border-hover: rgba(85, 122, 62, 0.55);
+        --accent: #557A3E;
+        --text-on-accent: #FFFFFF;
+        --delta-pos: #39723C;
+        --delta-neg: #B44735;
+        --card-shadow: none;
+        --card-shadow-hover: none;
+    """
+
+st.markdown(f"""
+<style>
+    :root {{
+{theme_tokens}
+    }}
 </style>
 """, unsafe_allow_html=True)
 
+if is_dark:
+    st.markdown("""
+    <style>
+        [data-testid="stSidebar"] [data-testid="stImage"] img {
+            filter: invert(1);
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
 # Inject shared metric-card and UI CSS from ui_components
 st.markdown(ui_components.get_metric_card_css(), unsafe_allow_html=True)
+
+# Streamlit's base theme is fixed in .streamlit/config.toml, so light mode
+# needs explicit overrides to keep native widgets legible.
+if not is_dark:
+    st.markdown(ui_components.get_light_mode_css(), unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Data directory setup

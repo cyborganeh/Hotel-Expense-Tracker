@@ -41,29 +41,34 @@ def require_auth() -> bool:
     <style>
         [data-testid="stSidebar"] { display: none; }
         .login-container {
-            max-width: 420px;
-            margin: 10vh auto 0;
-            padding: 2rem;
-            border-radius: 16px;
-            background: var(--bg-card, #151C2C);
-            box-shadow: var(--card-shadow, 0 4px 16px rgba(0,0,0,0.35));
-            border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
-            text-align: center;
+            max-width: 430px;
+            margin: 13vh auto 0;
+            padding: 0 0 1rem;
+            border-bottom: 1px solid rgba(225, 238, 226, 0.16);
+        }
+        .login-eyebrow {
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0;
+            text-transform: uppercase;
+            color: #A3ADA4;
+            margin-bottom: 0.5rem;
         }
         .login-title {
             font-size: 1.75rem;
-            font-weight: 700;
-            margin-bottom: 0.25rem;
-            color: var(--text-main, #F8FAFC);
+            font-weight: 650;
+            letter-spacing: 0;
+            line-height: 1.3;
+            color: #E8EEE8;
+            margin-bottom: 0;
         }
-        .login-subtitle {
-            font-size: 0.95rem;
-            color: var(--text-muted, #94A3B8);
-            margin-bottom: 2rem;
+        [data-testid="stForm"] {
+            max-width: 430px;
+            margin: 0 auto;
+            padding-top: 1rem;
         }
-        .login-icon {
-            font-size: 3rem;
-            margin-bottom: 0.75rem;
+        @media (max-width: 600px) {
+            .login-container { margin-top: 8vh; }
         }
     </style>
     """, unsafe_allow_html=True)
@@ -72,9 +77,8 @@ def require_auth() -> bool:
     with center_col:
         st.markdown("""
         <div class="login-container">
-            <div class="login-icon">🔒</div>
+            <div class="login-eyebrow">Restricted access</div>
             <div class="login-title">Hotel Spending Tracker</div>
-            <div class="login-subtitle">Restricted Access</div>
         </div>
         """, unsafe_allow_html=True)
 
