@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from parser import find_month_files, parse_detail_trial_balance, parse_income_statement, parse_consumption_report, parse_laundry_reports
 from matcher import reconcile_monthly_expenses
 from exporter import create_separated_excel, create_sr_separated_excel
+from sr_parser import normalize_sr_labels
 from data.months import get_default_data_dir
 
 
@@ -277,7 +278,6 @@ class TestCreateSRSeparatedExcel:
         item_headers = {guest_sheet.cell(5, col).value: col for col in range(1, 10)}
         qty_per_room_col = item_headers["Qty / Room Sold"]
         assert guest_sheet.cell(6, qty_per_room_col).value == 0.2
-
         different_occupancy = openpyxl.load_workbook(
             BytesIO(create_sr_separated_excel(sr_data, occupancy_pct=40, total_rooms_sold=50)),
             data_only=True,
@@ -298,6 +298,19 @@ class TestCreateSRSeparatedExcel:
         guest_sheet = workbook["Guest Supplies"]
         item_headers = {guest_sheet.cell(5, col).value: col for col in range(1, 10)}
         assert guest_sheet.cell(6, item_headers["Qty / Room Sold"]).value == "N/A"
+
+
+class TestNormalizeSRLabels:
+    def test_replaces_undefined_labels(self):
+        df = pd.DataFrame([
+            {"Item_Code": "976744", "Item_Name": " undefined ", "Category": "undefined"},
+            {"Item_Code": "976802", "Item_Name": None, "Category": "Paper Supplies"},
+        ])
+
+        normalized = normalize_sr_labels(df)
+
+        assert normalized["Item_Name"].tolist() == ["Item 976744", "Item 976802"]
+        assert normalized["Category"].tolist() == ["Guest Supplies", "Paper Supplies"]
 
 
 # ---------------------------------------------------------------------------

@@ -227,8 +227,28 @@ def parse_multiple_sr_pdfs(sources: List[Union[str, bytes, Any]]) -> pd.DataFram
         ])
 
     combined_df = pd.concat(dfs, ignore_index=True)
+    combined_df = normalize_sr_labels(combined_df)
     combined_df = combined_df.sort_values(by=['Date', 'SR_Number', 'Category', 'Item_Name']).reset_index(drop=True)
     return combined_df
+
+
+def normalize_sr_labels(df: pd.DataFrame) -> pd.DataFrame:
+    """Replace missing parser labels so charts and tables never show 'undefined'."""
+    normalized = df.copy()
+    invalid_labels = {'', 'undefined', 'null', 'none', 'nan'}
+
+    item_names = normalized['Item_Name'].fillna('').astype(str).str.strip()
+    missing_names = item_names.str.casefold().isin(invalid_labels)
+    normalized.loc[missing_names, 'Item_Name'] = (
+        'Item ' + normalized.loc[missing_names, 'Item_Code'].fillna('').astype(str).str.strip()
+    )
+
+    categories = normalized['Category'].fillna('').astype(str).str.strip()
+    missing_categories = categories.str.casefold().isin(invalid_labels)
+    normalized.loc[missing_categories, 'Category'] = normalized.loc[missing_categories].apply(
+        lambda row: categorize_item(row['Item_Code'], row['Item_Name']), axis=1
+    )
+    return normalized
 
 
 def get_category_summary(df: pd.DataFrame) -> pd.DataFrame:
