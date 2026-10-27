@@ -1,0 +1,44 @@
+name: Build portable Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "app.py"
+      - "app_launcher.py"
+      - "build_windows_exe.py"
+      - "data/**"
+      - "exporter.py"
+      - "matcher.py"
+      - "parser.py"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - "sr_parser.py"
+      - "ui/**"
+      - "ui_components.py"
+      - "views/**"
+      - ".github/workflows/build-windows-exe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install app and packager
+        run: python -m pip install . pyinstaller
+      - name: Build executable
+        run: python build_windows_exe.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HotelExpenseTracker-windows-x64
+          path: dist/HotelExpenseTracker.exe
+          if-no-files-found: error
+          retention-days: 30

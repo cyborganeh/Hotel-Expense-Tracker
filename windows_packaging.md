@@ -1,30 +1,29 @@
-# Windows packaging notes for this app
+# Portable Windows executable
 
-This project is a Streamlit app. The easiest way to make a Windows `.exe` is to package a small launcher that starts Streamlit.
+The app can be built as a single-file Windows executable that runs without an installer or administrator access. The executable contains Python, Streamlit, and the app code; your business data stays in its existing folder.
 
-## 1) Install builder
+## Build on GitHub Actions
+
+The repository workflow builds on a Windows runner, since PyInstaller cannot create Windows executables on Linux. Push the changes to GitHub, then open the repository's **Actions** tab and select **Build portable Windows EXE**. When the run finishes, download the `HotelExpenseTracker-windows-x64` artifact. GitHub provides it as a ZIP containing `HotelExpenseTracker.exe`.
+
+The workflow also runs automatically on pushes to `main` that change app or packaging files.
+
+## Build directly on Windows
+
+With Python 3.11 installed, run these commands from the project folder:
 
 ```bash
-pip install pyinstaller
+python -m pip install . pyinstaller
+python build_windows_exe.py
 ```
 
-## 2) Build the EXE
+The executable is written to `dist/HotelExpenseTracker.exe`.
 
-From the project folder:
+## Run
 
-```bash
-pyinstaller --onefile --noconsole app_launcher.py
-```
+Copy the executable to a folder you can access and launch it. It opens the app in your browser at `http://localhost:8501`. No installation is required. Some managed workplaces may still block unsigned executables through application-control policy; an EXE cannot bypass that restriction.
 
-This will generate a file in the `dist` folder, such as:
-
-```text
-dist/app_launcher.exe
-```
-
-## 3) Runtime notes
-
-The app expects a local data directory, usually with month folders such as:
+The app expects your local data directory, usually with month folders such as:
 
 ```text
 Business Review/
@@ -32,21 +31,9 @@ Business Review/
   7.JULY/
 ```
 
-You can set a custom folder before launch:
+Set a custom folder before launching if needed:
 
 ```powershell
 set HOTEL_DATA_DIR=C:\Business Review
-app_launcher.exe
+HotelExpenseTracker.exe
 ```
-
-or choose the folder manually inside the app if you later add a folder picker.
-
-## 4) Why this approach
-
-- Fastest way to package the app without rewriting the UI
-- Keeps your current Streamlit dashboard intact
-- Suitable for internal business use
-
-## 5) For a more native Windows app later
-
-If you want a fully native desktop feel later, the next step is to rebuild the interface using Electron or PyQt, but that would be a larger migration.
