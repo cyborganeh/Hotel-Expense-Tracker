@@ -85,13 +85,13 @@ def get_metric_card_css() -> str:
     <style>
         /* Shared operational type and spacing scale; colors stay in app.py. */
         :root {
-            /* Fluid type scale — clamp(min, preferred, max) */
-            --type-caption: clamp(0.65rem, 0.6rem + 0.25vw, 0.75rem);
-            --type-small: clamp(0.8rem, 0.75rem + 0.25vw, 0.85rem);
-            --type-body: clamp(0.9rem, 0.85rem + 0.25vw, 0.95rem);
-            --type-section: clamp(1.05rem, 0.95rem + 0.5vw, 1.15rem);
-            --type-metric: clamp(1.35rem, 1.1rem + 1vw, 1.65rem);
-            --type-title: clamp(1.6rem, 1.2rem + 2vw, 2.4rem);
+            /* Fluid type scale — clamp(min, preferred, max) — bigger */
+            --type-caption: clamp(0.7rem, 0.65rem + 0.3vw, 0.8rem);
+            --type-small: clamp(0.85rem, 0.8rem + 0.3vw, 0.95rem);
+            --type-body: clamp(1rem, 0.95rem + 0.3vw, 1.1rem);
+            --type-section: clamp(1.2rem, 1.1rem + 0.5vw, 1.35rem);
+            --type-metric: clamp(1.6rem, 1.3rem + 1.5vw, 2.2rem);
+            --type-title: clamp(2rem, 1.5rem + 2.5vw, 3rem);
             --space-1: clamp(4px, 0.25rem, 4px);
             --space-2: clamp(8px, 0.5rem, 8px);
             --space-3: clamp(12px, 0.75rem, 16px);
@@ -117,8 +117,11 @@ def get_metric_card_css() -> str:
             background-color: var(--bg-main);
             color: var(--text-main);
             font-size: var(--type-body);
-            background-image: radial-gradient(ellipse at top left, var(--accent-glow) 0%, transparent 50%);
+            background-image: radial-gradient(ellipse at top left, var(--accent-glow) 0%, transparent 55%);
             background-size: 100% 100%;
+        }
+        .stAppViewContainer {
+            padding: 2rem 2.5rem;
         }
         [data-testid="stAppViewContainer"] > .main .block-container {
             max-width: 1480px;
@@ -230,22 +233,23 @@ def get_metric_card_css() -> str:
             border: 0 !important;
             border-right: 1px solid var(--border-subtle) !important;
             border-radius: 0;
-            padding: 14px 18px;
-            box-shadow: none !important;
+            padding: 16px 20px;
+            box-shadow: var(--card-shadow) !important;
             color: var(--text-main) !important;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             min-width: 0;
-            min-height: 84px;
-            transition: background-color 200ms ease;
+            min-height: 90px;
+            transition: background-color 200ms ease, box-shadow 200ms ease;
         }
         .metric-card:hover {
             background-color: var(--bg-card-hover) !important;
+            box-shadow: var(--card-shadow-hover) !important;
         }
         .metric-card:last-child { border-right: 0 !important; }
         .metric-card-primary .metric-value {
-            font-size: 1.75rem !important;
+            font-size: 1.95rem !important;
             background: linear-gradient(135deg, var(--text-main) 0%, var(--accent) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
