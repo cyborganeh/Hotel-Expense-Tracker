@@ -47,9 +47,6 @@ def create_separated_excel(
             logger.error(f"Missing required key in reconciled_data: {key}")
             raise ValueError(f"Missing required key in reconciled_data: {key}")
     
-    logger.info(f"Creating separated Excel for {month_name}")
-
-    
     wb = openpyxl.Workbook()
     # Remove default sheet
     wb.remove(wb.active)

@@ -10,7 +10,7 @@ import openpyxl
 # Ensure project root is on the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from parser import find_month_files, parse_detail_trial_balance, parse_income_statement, parse_consumption_report, parse_laundry_reports
+from parser import find_month_files, parse_detail_trial_balance, parse_consumption_report
 from matcher import reconcile_monthly_expenses
 from exporter import create_separated_excel, create_sr_separated_excel
 from sr_parser import normalize_sr_labels

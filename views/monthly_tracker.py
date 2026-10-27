@@ -2,7 +2,6 @@
 import os
 import re
 import tempfile
-import zipfile
 
 import numpy as np
 import pandas as pd

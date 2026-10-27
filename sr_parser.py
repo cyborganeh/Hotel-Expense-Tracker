@@ -12,8 +12,7 @@ and automatically categorizes items into:
 
 import os
 import re
-import io
-from typing import Dict, List, Any, Optional, Union
+from typing import List, Any, Optional, Union
 import pandas as pd
 import pymupdf
 
