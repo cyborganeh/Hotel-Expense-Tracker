@@ -12,9 +12,12 @@ and automatically categorizes items into:
 
 import os
 import re
+import logging
 from typing import List, Any, Optional, Union
 import pandas as pd
 import pymupdf
+
+logger = logging.getLogger(__name__)
 
 
 # Complete Item Code to Category Mapping based on Hotel SR tracking
@@ -217,7 +220,7 @@ def parse_multiple_sr_pdfs(sources: List[Union[str, bytes, Any]]) -> pd.DataFram
             if not df.empty:
                 dfs.append(df)
         except Exception as e:
-            print(f"Error parsing SR PDF: {e}")
+            logger.warning(f"Error parsing SR PDF: {e}")
 
     if not dfs:
         return pd.DataFrame(columns=[

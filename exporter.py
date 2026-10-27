@@ -12,6 +12,10 @@ from ui.security import sanitize_excel_value
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+# Reusable number formats for all exported sheets
+NUM_FMT_CURRENCY = "#,##0"
+NUM_FMT_PCT = "0.0%"
+
 # Configure module-level logger
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler())
@@ -77,8 +81,6 @@ def create_separated_excel(
     total_bottom_border = Side(style='double', color='0F172A')
     total_border = Border(top=total_top_border, bottom=total_bottom_border)
 
-    num_format_currency = "#,##0"
-    num_format_pct = "0.0%"
 
     cat_df = reconciled_data['category_summary']
     trx_df = reconciled_data['transactions']
@@ -122,7 +124,7 @@ def create_separated_excel(
         c_val.font = Font(name="Calibri", size=14, bold=True, color="1E3A8A")
         c_val.alignment = Alignment(horizontal="center", vertical="center")
         c_val.fill = light_blue_fill
-        c_val.number_format = num_format_pct if val_type == "PCT" else num_format_currency
+        c_val.number_format = NUM_FMT_PCT if val_type == "PCT" else NUM_FMT_CURRENCY
 
     # Summary Table Headers
     headers_sum = [
@@ -142,19 +144,19 @@ def create_separated_excel(
         
         c_bgt = ws_sum.cell(r_idx, 3, row['Budget'])
         c_bgt.font = regular_font
-        c_bgt.number_format = num_format_currency
+        c_bgt.number_format = NUM_FMT_CURRENCY
 
         c_act = ws_sum.cell(r_idx, 4, row['Actual'])
         c_act.font = bold_font
-        c_act.number_format = num_format_currency
+        c_act.number_format = NUM_FMT_CURRENCY
 
         c_var = ws_sum.cell(r_idx, 5, row['Variance_IDR'])
         c_var.font = regular_font
-        c_var.number_format = num_format_currency
+        c_var.number_format = NUM_FMT_CURRENCY
 
         c_pct = ws_sum.cell(r_idx, 6, row['Variance_Pct'] / 100.0)
         c_pct.font = regular_font
-        c_pct.number_format = num_format_pct
+        c_pct.number_format = NUM_FMT_PCT
 
         c_stat = ws_sum.cell(r_idx, 7, sanitize_excel_value(row['Status']))
         c_stat.alignment = Alignment(horizontal="center")
@@ -183,14 +185,14 @@ def create_separated_excel(
     first_data_row = start_row + 1
     ws_sum.cell(tot_row, 1, "TOTAL").font = bold_font
     ws_sum.cell(tot_row, 3, f"=SUM(C{first_data_row}:C{tot_row-1})").font = bold_font
-    ws_sum.cell(tot_row, 3).number_format = num_format_currency
+    ws_sum.cell(tot_row, 3).number_format = NUM_FMT_CURRENCY
     ws_sum.cell(tot_row, 4, f"=SUM(D{first_data_row}:D{tot_row-1})").font = bold_font
-    ws_sum.cell(tot_row, 4).number_format = num_format_currency
+    ws_sum.cell(tot_row, 4).number_format = NUM_FMT_CURRENCY
     ws_sum.cell(tot_row, 5, f"=D{tot_row}-C{tot_row}").font = bold_font
-    ws_sum.cell(tot_row, 5).number_format = num_format_currency
+    ws_sum.cell(tot_row, 5).number_format = NUM_FMT_CURRENCY
     if tot_row > first_data_row:
         ws_sum.cell(tot_row, 6, f"=IF(C{tot_row}=0,0,E{tot_row}/C{tot_row})").font = bold_font
-    ws_sum.cell(tot_row, 6).number_format = num_format_pct
+    ws_sum.cell(tot_row, 6).number_format = NUM_FMT_PCT
     if tot_row > first_data_row:
         ws_sum.cell(tot_row, 9, f"=SUM(I{first_data_row}:I{tot_row-1})").font = bold_font
     ws_sum.cell(tot_row, 9).alignment = Alignment(horizontal="center")
@@ -232,11 +234,11 @@ def create_separated_excel(
         
         c_up = ws_trx.cell(r_idx, 8, row['Unit_Price'])
         c_up.font = regular_font
-        c_up.number_format = num_format_currency
+        c_up.number_format = NUM_FMT_CURRENCY
 
         c_amt = ws_trx.cell(r_idx, 9, row['Amount'])
         c_amt.font = bold_font
-        c_amt.number_format = num_format_currency
+        c_amt.number_format = NUM_FMT_CURRENCY
 
         ws_trx.cell(r_idx, 10, sanitize_excel_value(row['Voucher_Ref'])).font = regular_font
         ws_trx.cell(r_idx, 11, sanitize_excel_value(row['JRNL'])).font = regular_font
@@ -290,15 +292,15 @@ def create_separated_excel(
             
             c_up = ws_items.cell(r_idx, 5, row['Avg_Unit_Price'])
             c_up.font = regular_font
-            c_up.number_format = num_format_currency
+            c_up.number_format = NUM_FMT_CURRENCY
 
             c_amt = ws_items.cell(r_idx, 6, row['Total_Amount'])
             c_amt.font = bold_font
-            c_amt.number_format = num_format_currency
+            c_amt.number_format = NUM_FMT_CURRENCY
 
             c_pct = ws_items.cell(r_idx, 7, row['Pct_Of_Category'] / 100.0)
             c_pct.font = regular_font
-            c_pct.number_format = num_format_pct
+            c_pct.number_format = NUM_FMT_PCT
 
             c_cnt = ws_items.cell(r_idx, 8, row['Order_Count'])
             c_cnt.font = regular_font
@@ -318,7 +320,7 @@ def create_separated_excel(
         # Grand Total row
         ws_items.cell(r_idx, 1, "GRAND TOTAL").font = bold_font
         ws_items.cell(r_idx, 6, f"=SUM(F{s_row+1}:F{r_idx-1})").font = bold_font
-        ws_items.cell(r_idx, 6).number_format = num_format_currency
+        ws_items.cell(r_idx, 6).number_format = NUM_FMT_CURRENCY
         for col_i in range(1, 10):
             ws_items.cell(r_idx, col_i).border = total_border
 
@@ -369,15 +371,15 @@ def create_separated_excel(
                 
                 c_up = ws.cell(curr_row, 5, i_row['Avg_Unit_Price'])
                 c_up.font = regular_font
-                c_up.number_format = num_format_currency
+                c_up.number_format = NUM_FMT_CURRENCY
 
                 c_amt = ws.cell(curr_row, 6, i_row['Total_Amount'])
                 c_amt.font = bold_font
-                c_amt.number_format = num_format_currency
+                c_amt.number_format = NUM_FMT_CURRENCY
 
                 c_pct = ws.cell(curr_row, 7, i_row['Pct_Of_Category'] / 100.0)
                 c_pct.font = regular_font
-                c_pct.number_format = num_format_pct
+                c_pct.number_format = NUM_FMT_PCT
 
                 c_cnt = ws.cell(curr_row, 8, i_row['Order_Count'])
                 c_cnt.font = regular_font
@@ -390,7 +392,7 @@ def create_separated_excel(
             # Subtotal of Item Summary
             ws.cell(curr_row, 1, "ITEMS SUB-TOTAL").font = bold_font
             ws.cell(curr_row, 6, f"=SUM(F{start_sub_row}:F{curr_row-1})").font = bold_font
-            ws.cell(curr_row, 6).number_format = num_format_currency
+            ws.cell(curr_row, 6).number_format = NUM_FMT_CURRENCY
             for col_i in range(1, 9):
                 ws.cell(curr_row, col_i).border = total_border
 
@@ -421,11 +423,11 @@ def create_separated_excel(
             
             c_p = ws.cell(r_idx, 7, row['Unit_Price'])
             c_p.font = regular_font
-            c_p.number_format = num_format_currency
+            c_p.number_format = NUM_FMT_CURRENCY
 
             c_a = ws.cell(r_idx, 8, row['Amount'])
             c_a.font = bold_font
-            c_a.number_format = num_format_currency
+            c_a.number_format = NUM_FMT_CURRENCY
 
             ws.cell(r_idx, 9, sanitize_excel_value(row['Voucher_Ref'])).font = regular_font
 
@@ -436,7 +438,7 @@ def create_separated_excel(
         end_row = s_row + len(filtered_df) + 1
         ws.cell(end_row, 1, "TRANSACTION TOTAL").font = bold_font
         ws.cell(end_row, 8, f"=SUM(H{s_row+1}:H{end_row-1})").font = bold_font
-        ws.cell(end_row, 8).number_format = num_format_currency
+        ws.cell(end_row, 8).number_format = NUM_FMT_CURRENCY
         for col_i in range(1, 10):
             ws.cell(end_row, col_i).border = total_border
 
@@ -514,8 +516,6 @@ def create_sr_separated_excel(
     total_bottom_border = Side(style='double', color='0F172A')
     total_border = Border(top=total_top_border, bottom=total_bottom_border)
 
-    num_format_currency = "#,##0"
-    num_format_pct = "0.0%"
 
     total_amount = sr_df['Total'].sum() if not sr_df.empty else 0.0
     total_qty = sr_df['Qty'].sum() if not sr_df.empty else 0.0
@@ -565,9 +565,9 @@ def create_sr_separated_excel(
         c_val.alignment = Alignment(horizontal="center", vertical="center")
         c_val.fill = light_blue_fill
         if val_type in ("IDR", "QTY"):
-            c_val.number_format = num_format_currency
+            c_val.number_format = NUM_FMT_CURRENCY
         elif val_type == "PCT":
-            c_val.number_format = num_format_pct
+            c_val.number_format = NUM_FMT_PCT
         else:
             c_val.number_format = "#,##0"
 
@@ -600,15 +600,15 @@ def create_sr_separated_excel(
         ws_sum.cell(curr_r, 3).number_format = "#,##0"
 
         ws_sum.cell(curr_r, 4, c_amt).font = bold_font
-        ws_sum.cell(curr_r, 4).number_format = num_format_currency
+        ws_sum.cell(curr_r, 4).number_format = NUM_FMT_CURRENCY
 
         ws_sum.cell(curr_r, 5, c_pct).font = regular_font
-        ws_sum.cell(curr_r, 5).number_format = num_format_pct
+        ws_sum.cell(curr_r, 5).number_format = NUM_FMT_PCT
 
         ws_sum.cell(curr_r, 6, c_count).font = regular_font
         ws_sum.cell(curr_r, 6).alignment = Alignment(horizontal="center")
         ws_sum.cell(curr_r, 7, c_spend_per_room_sold).font = regular_font
-        ws_sum.cell(curr_r, 7).number_format = num_format_currency
+        ws_sum.cell(curr_r, 7).number_format = NUM_FMT_CURRENCY
 
         for col_i in range(1, 8):
             ws_sum.cell(curr_r, col_i).border = thin_border
@@ -619,13 +619,13 @@ def create_sr_separated_excel(
     ws_sum.cell(curr_r, 3, f"=SUM(C9:C{curr_r-1})").font = bold_font
     ws_sum.cell(curr_r, 3).number_format = "#,##0"
     ws_sum.cell(curr_r, 4, f"=SUM(D9:D{curr_r-1})").font = bold_font
-    ws_sum.cell(curr_r, 4).number_format = num_format_currency
+    ws_sum.cell(curr_r, 4).number_format = NUM_FMT_CURRENCY
     ws_sum.cell(curr_r, 5, 1.0).font = bold_font
-    ws_sum.cell(curr_r, 5).number_format = num_format_pct
+    ws_sum.cell(curr_r, 5).number_format = NUM_FMT_PCT
     ws_sum.cell(curr_r, 6, f"=SUM(F9:F{curr_r-1})").font = bold_font
     ws_sum.cell(curr_r, 6).alignment = Alignment(horizontal="center")
     ws_sum.cell(curr_r, 7, total_spend_per_room_sold).font = bold_font
-    ws_sum.cell(curr_r, 7).number_format = num_format_currency
+    ws_sum.cell(curr_r, 7).number_format = NUM_FMT_CURRENCY
 
     for col_i in range(1, 8):
         ws_sum.cell(curr_r, col_i).border = total_border
@@ -658,10 +658,10 @@ def create_sr_separated_excel(
             ws_sum.cell(curr_r, 4).number_format = "#,##0"
             ws_sum.cell(curr_r, 5, sanitize_excel_value(row['Unit'])).font = regular_font
             ws_sum.cell(curr_r, 6, row['Total_Amount']).font = bold_font
-            ws_sum.cell(curr_r, 6).number_format = num_format_currency
+            ws_sum.cell(curr_r, 6).number_format = NUM_FMT_CURRENCY
             pct = row['Total_Amount'] / total_amount if total_amount > 0 else 0.0
             ws_sum.cell(curr_r, 7, pct).font = regular_font
-            ws_sum.cell(curr_r, 7).number_format = num_format_pct
+            ws_sum.cell(curr_r, 7).number_format = NUM_FMT_PCT
 
             for col_i in range(1, 8):
                 ws_sum.cell(curr_r, col_i).border = thin_border
@@ -713,12 +713,12 @@ def create_sr_separated_excel(
             ws.cell(r, 3).alignment = Alignment(horizontal="right")
             ws.cell(r, 4, sanitize_excel_value(row['Unit'])).font = regular_font
             ws.cell(r, 5, row['Avg_Cost']).font = regular_font
-            ws.cell(r, 5).number_format = num_format_currency
+            ws.cell(r, 5).number_format = NUM_FMT_CURRENCY
             ws.cell(r, 6, row['Total_Amount']).font = bold_font
-            ws.cell(r, 6).number_format = num_format_currency
+            ws.cell(r, 6).number_format = NUM_FMT_CURRENCY
             pct = (row['Total_Amount'] / cat_total) if cat_total > 0 else 0.0
             ws.cell(r, 7, pct).font = regular_font
-            ws.cell(r, 7).number_format = num_format_pct
+            ws.cell(r, 7).number_format = NUM_FMT_PCT
             ws.cell(r, 8, row['Order_Count']).font = regular_font
             ws.cell(r, 8).alignment = Alignment(horizontal="center")
             qty_per_room_sold = row['Total_Qty'] / rooms_sold_value if rooms_sold_valid else "N/A"
@@ -734,7 +734,7 @@ def create_sr_separated_excel(
         ws.cell(r, 3, f"=SUM(C{start_item_r}:C{r-1})").font = bold_font
         ws.cell(r, 3).number_format = "#,##0"
         ws.cell(r, 6, f"=SUM(F{start_item_r}:F{r-1})").font = bold_font
-        ws.cell(r, 6).number_format = num_format_currency
+        ws.cell(r, 6).number_format = NUM_FMT_CURRENCY
         for col_i in range(1, 10):
             ws.cell(r, col_i).border = total_border
 
@@ -762,9 +762,9 @@ def create_sr_separated_excel(
             ws.cell(r, 5).number_format = "#,##0"
             ws.cell(r, 6, sanitize_excel_value(row['Unit'])).font = regular_font
             ws.cell(r, 7, row['Cost']).font = regular_font
-            ws.cell(r, 7).number_format = num_format_currency
+            ws.cell(r, 7).number_format = NUM_FMT_CURRENCY
             ws.cell(r, 8, row['Total']).font = bold_font
-            ws.cell(r, 8).number_format = num_format_currency
+            ws.cell(r, 8).number_format = NUM_FMT_CURRENCY
             ws.cell(r, 9, sanitize_excel_value(row['Requested_By'])).font = regular_font
 
             for col_i in range(1, 10):
@@ -776,7 +776,7 @@ def create_sr_separated_excel(
         ws.cell(r, 5, f"=SUM(E{start_log_r}:E{r-1})").font = bold_font
         ws.cell(r, 5).number_format = "#,##0"
         ws.cell(r, 8, f"=SUM(H{start_log_r}:H{r-1})").font = bold_font
-        ws.cell(r, 8).number_format = num_format_currency
+        ws.cell(r, 8).number_format = NUM_FMT_CURRENCY
         for col_i in range(1, 10):
             ws.cell(r, col_i).border = total_border
 
@@ -812,9 +812,9 @@ def create_sr_separated_excel(
         ws_all.cell(r_idx, 6).number_format = "#,##0"
         ws_all.cell(r_idx, 7, sanitize_excel_value(row['Unit'])).font = regular_font
         ws_all.cell(r_idx, 8, row['Cost']).font = regular_font
-        ws_all.cell(r_idx, 8).number_format = num_format_currency
+        ws_all.cell(r_idx, 8).number_format = NUM_FMT_CURRENCY
         ws_all.cell(r_idx, 9, row['Total']).font = bold_font
-        ws_all.cell(r_idx, 9).number_format = num_format_currency
+        ws_all.cell(r_idx, 9).number_format = NUM_FMT_CURRENCY
         ws_all.cell(r_idx, 10, sanitize_excel_value(row['Requested_By'])).font = regular_font
         ws_all.cell(r_idx, 11, sanitize_excel_value(row.get('Source_File', ''))).font = regular_font
 
