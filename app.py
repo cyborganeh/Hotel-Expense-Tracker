@@ -116,8 +116,12 @@ else:
 
 st.markdown(f"""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
     :root {{
 {theme_tokens}
+        --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
     }}
 </style>
 """, unsafe_allow_html=True)

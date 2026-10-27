@@ -85,22 +85,40 @@ def get_metric_card_css() -> str:
     <style>
         /* Shared operational type and spacing scale; colors stay in app.py. */
         :root {
-            --type-caption: 0.75rem;
-            --type-small: 0.85rem;
-            --type-body: 0.95rem;
-            --type-section: 1.15rem;
-            --type-metric: 1.5rem;
-            --type-title: 2.1rem;
-            --space-1: 4px;
-            --space-2: 8px;
-            --space-3: 16px;
-            --space-4: 24px;
-            --surface-radius: 6px;
+            /* Fluid type scale — clamp(min, preferred, max) */
+            --type-caption: clamp(0.65rem, 0.6rem + 0.25vw, 0.75rem);
+            --type-small: clamp(0.8rem, 0.75rem + 0.25vw, 0.85rem);
+            --type-body: clamp(0.9rem, 0.85rem + 0.25vw, 0.95rem);
+            --type-section: clamp(1.05rem, 0.95rem + 0.5vw, 1.15rem);
+            --type-metric: clamp(1.35rem, 1.1rem + 1vw, 1.65rem);
+            --type-title: clamp(1.6rem, 1.2rem + 2vw, 2.4rem);
+            --space-1: clamp(4px, 0.25rem, 4px);
+            --space-2: clamp(8px, 0.5rem, 8px);
+            --space-3: clamp(12px, 0.75rem, 16px);
+            --space-4: clamp(20px, 1.25rem, 24px);
+            --surface-radius: clamp(6px, 0.4rem, 8px);
+
+            /* Smooth scroll */
+            scroll-behavior: smooth;
+
+            /* Subtle gradient glow for accent elements */
+            --accent-glow: rgba(139, 174, 114, 0.35);
+            --accent-glow-strong: rgba(139, 174, 114, 0.6);
         }
+
+        html, body {
+            font-family: var(--font-sans);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+        }
+
         .stApp {
             background-color: var(--bg-main);
             color: var(--text-main);
             font-size: var(--type-body);
+            background-image: radial-gradient(ellipse at top left, var(--accent-glow) 0%, transparent 50%);
+            background-size: 100% 100%;
         }
         [data-testid="stAppViewContainer"] > .main .block-container {
             max-width: 1480px;
@@ -133,14 +151,16 @@ def get_metric_card_css() -> str:
             color: var(--text-main);
             font-size: var(--type-metric);
             font-weight: 650;
-            line-height: 1.3;
+            line-height: 1.25;
+            letter-spacing: -0.02em;
         }
         h3 {
             color: var(--text-main);
             font-size: var(--type-section);
             font-weight: 600;
-            line-height: 1.4;
+            line-height: 1.35;
             margin-top: var(--space-3);
+            letter-spacing: -0.01em;
         }
         h4 {
             color: var(--text-main);
@@ -164,9 +184,11 @@ def get_metric_card_css() -> str:
             border: 1px solid var(--accent) !important;
             color: var(--text-on-accent) !important;
             font-weight: 600;
+            transition: all 200ms ease;
         }
         [data-testid="stBaseButton-primary"]:hover {
-            filter: brightness(1.06);
+            box-shadow: 0 0 20px var(--accent-glow);
+            transform: translateY(-1px);
         }
         [data-testid="stBaseButton-secondary"] {
             border-color: var(--border-subtle) !important;
@@ -216,10 +238,18 @@ def get_metric_card_css() -> str:
             justify-content: space-between;
             min-width: 0;
             min-height: 84px;
+            transition: background-color 200ms ease;
+        }
+        .metric-card:hover {
+            background-color: var(--bg-card-hover) !important;
         }
         .metric-card:last-child { border-right: 0 !important; }
         .metric-card-primary .metric-value {
-            font-size: 1.65rem !important;
+            font-size: 1.75rem !important;
+            background: linear-gradient(135deg, var(--text-main) 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         .metric-card .metric-label {
             font-size: var(--type-caption);
@@ -231,10 +261,10 @@ def get_metric_card_css() -> str:
         }
         .metric-card .metric-value {
             font-size: var(--type-metric);
-            font-weight: 650;
+            font-weight: 700;
             color: var(--text-main) !important;
-            letter-spacing: 0;
-            line-height: 1.2;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
             font-variant-numeric: tabular-nums;
         }
         .metric-card .metric-delta {
@@ -273,7 +303,7 @@ def get_metric_card_css() -> str:
             font-size: var(--type-small);
             white-space: nowrap;
             color: var(--text-muted) !important;
-            transition: color 150ms ease, background-color 150ms ease;
+            transition: color 200ms ease, background-color 200ms ease, border-bottom-color 200ms ease;
         }
         .stTabs [role="tab"]:hover,
         .stTabs [data-baseweb="tab"]:hover {
@@ -285,7 +315,8 @@ def get_metric_card_css() -> str:
             color: var(--accent) !important;
             background-color: transparent !important;
             border-bottom: 2px solid var(--accent) !important;
-            font-weight: 600 !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.01em;
         }
         .stTabs [role="tab"]:focus-visible {
             outline-offset: -2px;
@@ -295,6 +326,7 @@ def get_metric_card_css() -> str:
         [data-testid="stDataFrame"] {
             border: 1px solid var(--border-subtle) !important;
             border-radius: var(--surface-radius);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
         }
         [data-testid="stDataFrame"] [role="columnheader"] {
             font-weight: 600;
@@ -316,8 +348,8 @@ def get_metric_card_css() -> str:
         }
         .sidebar-brand .brand-name {
             font-size: var(--type-section);
-            font-weight: 650;
-            letter-spacing: -0.015em;
+            font-weight: 700;
+            letter-spacing: -0.02em;
             color: var(--text-main);
             line-height: 1.3;
         }
@@ -331,11 +363,11 @@ def get_metric_card_css() -> str:
         /* Header styles */
         .main-header {
             font-size: var(--type-title);
-            font-weight: 650;
-            letter-spacing: 0;
+            font-weight: 700;
+            letter-spacing: -0.03em;
             color: var(--text-main) !important;
             margin-bottom: var(--space-1);
-            line-height: 1.25;
+            line-height: 1.15;
         }
         .sub-header {
             font-size: var(--type-body);
@@ -392,6 +424,8 @@ def get_metric_card_css() -> str:
         }
         @media (prefers-reduced-motion: reduce) {
             .stTabs [data-baseweb="tab"] { transition: none; }
+            .metric-card { transition: none; }
+            [data-testid="stBaseButton-primary"] { transition: none; }
         }
     </style>
     """
