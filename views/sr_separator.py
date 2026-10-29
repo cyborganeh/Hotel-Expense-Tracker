@@ -14,6 +14,11 @@ import ui_components
 from ui.formatting import format_idr, show_validation_banner
 from ui.security import sanitize_html, validate_upload_size, safe_filename
 from data.months import get_default_data_dir
+import room_cost
+
+
+def _format_room_cost_value(value) -> str:
+    return "Belum lengkap" if pd.isna(value) else format_idr(value)
 
 
 def render_sr_separator() -> None:
@@ -77,7 +82,9 @@ def render_sr_separator() -> None:
     st.markdown(f'<div class="sub-header">Hotel • Gudang Central Issuing to Housekeeping • <b>{sr_report_title}</b></div>', unsafe_allow_html=True)
 
     if sr_df.empty:
-        ui_components.render_empty_state("👈 Please select or upload Stock Request (SR) PDF files from the sidebar to begin.")
+        ui_components.render_empty_state(
+            "No SR PDFs loaded. Daily room costs can still be entered; the SR component is currently Rp 0."
+        )
         st.markdown("""
         ### About Warehouse Stock Request (SR) Separator
         This tool extracts items from Gudang Central Stock Request PDFs and separates them automatically into:
@@ -88,11 +95,226 @@ def render_sr_separator() -> None:
 
         **Supported formats**: Stock Request Consumption PDFs from Hotel (`.pdf`).
         """)
-        return
+        sr_df = pd.DataFrame(columns=[
+            "Date", "SR_Number", "Requested_By", "Department", "Item_Code", "Item_Name",
+            "Category", "Qty", "Unit", "Cost", "Total", "Source_File",
+        ])
 
     identity_columns = [column for column in ['Date', 'SR_Number', 'Item_Code', 'Qty', 'Total'] if column in sr_df]
     period_identity = sr_report_title + "\x1f" + sr_df[identity_columns].to_csv(index=False)
     period_key = hashlib.sha256(period_identity.encode("utf-8")).hexdigest()[:12]
+
+    current_month = pd.Timestamp.today().strftime("%Y-%m")
+    sr_dates = pd.to_datetime(sr_df.get("Date", pd.Series(dtype=str)), errors="coerce", format="mixed")
+    available_months = {current_month}
+    available_months.update(sr_dates.dropna().dt.strftime("%Y-%m").tolist())
+    room_cost_dir = room_cost.get_room_cost_storage_dir()
+    if os.path.isdir(room_cost_dir):
+        available_months.update(
+            name[:-5] for name in os.listdir(room_cost_dir)
+            if re.fullmatch(r"\d{4}-\d{2}\.json", name)
+        )
+    month_options = sorted(available_months, reverse=True)
+    preferred_month = next(
+        (month for month in month_options if month in set(sr_dates.dropna().dt.strftime("%Y-%m"))),
+        current_month,
+    )
+    selected_month = st.sidebar.selectbox(
+        "Room Cost Month (YYYY-MM)",
+        month_options,
+        index=month_options.index(preferred_month),
+        key="sr_room_cost_month",
+    )
+    try:
+        saved_daily_costs = room_cost.load_daily_room_costs(selected_month)
+    except ValueError as exc:
+        saved_daily_costs = pd.DataFrame(columns=room_cost.DAILY_COLUMNS)
+        show_validation_banner([str(exc)], level="error")
+
+    st.sidebar.markdown("### Daily Room Cost Excel")
+    uploaded_cost_excel = st.sidebar.file_uploader(
+        "Upload daily costs (.xlsx)",
+        type=["xlsx"],
+        key=f"room_cost_upload_{selected_month}",
+        help="Required columns: Date, Room Nights, Water, Electricity, and Linen Laundry.",
+    )
+    if uploaded_cost_excel is not None:
+        try:
+            validate_upload_size(uploaded_cost_excel)
+            imported_daily_costs = room_cost.parse_daily_room_cost_excel(uploaded_cost_excel, selected_month)
+            duplicate_dates = sorted(set(saved_daily_costs["Date"]) & set(imported_daily_costs["Date"]))
+            if duplicate_dates:
+                st.sidebar.warning("Data exists for: " + ", ".join(duplicate_dates))
+                replace_confirmed = st.sidebar.checkbox(
+                    "Confirm replacement for these dates",
+                    key=f"room_cost_replace_confirm_{selected_month}",
+                )
+            else:
+                replace_confirmed = True
+
+            if st.sidebar.button(
+                "Save Daily Costs",
+                key=f"room_cost_save_{selected_month}",
+                disabled=bool(duplicate_dates) and not replace_confirmed,
+                type="primary",
+            ):
+                try:
+                    merged_daily_costs = room_cost.merge_daily_room_costs(
+                        saved_daily_costs,
+                        imported_daily_costs,
+                        replace_dates=replace_confirmed,
+                        month=selected_month,
+                    )
+                    room_cost.save_daily_room_costs(selected_month, merged_daily_costs)
+                    st.sidebar.success(f"Saved {len(imported_daily_costs)} daily row(s).")
+                    st.rerun()
+                except Exception as exc:
+                    show_validation_banner([f"Could not save daily room-cost data: {exc}"], level="error")
+            st.sidebar.caption(f"Validated {len(imported_daily_costs)} row(s) for {selected_month}.")
+        except Exception as exc:
+            show_validation_banner([f"Daily room-cost Excel: {exc}"], level="error")
+    else:
+        st.sidebar.caption(f"{len(saved_daily_costs)} saved daily row(s) for {selected_month}.")
+
+    st.sidebar.markdown("### Night Audit Occupancy & Room Sold")
+    uploaded_night_audit = st.sidebar.file_uploader(
+        "Upload Night Audit Report (.xlsx)",
+        type=["xlsx"],
+        key=f"night_audit_upload_{selected_month}",
+        help="Extracts occupancy and room sold by date. Existing cost values are preserved.",
+    )
+    if uploaded_night_audit is not None:
+        try:
+            validate_upload_size(uploaded_night_audit)
+            audit_rows = room_cost.parse_night_audit_report(uploaded_night_audit, selected_month)
+            duplicate_audit_dates = sorted(set(saved_daily_costs["Date"]) & set(audit_rows["Date"]))
+            if duplicate_audit_dates:
+                st.sidebar.warning("Room-night data exists for: " + ", ".join(duplicate_audit_dates))
+                replace_audit_confirmed = st.sidebar.checkbox(
+                    "Confirm Night Audit replacement",
+                    key=f"night_audit_replace_confirm_{selected_month}",
+                )
+            else:
+                replace_audit_confirmed = True
+
+            if st.sidebar.button(
+                "Save Occupancy & Room Sold",
+                key=f"night_audit_save_{selected_month}",
+                disabled=bool(duplicate_audit_dates) and not replace_audit_confirmed,
+                type="primary",
+            ):
+                merged_audit_rows = room_cost.merge_daily_room_costs(
+                    saved_daily_costs,
+                    audit_rows,
+                    replace_dates=replace_audit_confirmed,
+                    month=selected_month,
+                )
+                room_cost.save_daily_room_costs(selected_month, merged_audit_rows)
+                st.sidebar.success(
+                    f"Saved {len(audit_rows)} dates; room sold total {audit_rows['Room_Nights'].sum():,.0f}."
+                )
+                st.rerun()
+            st.sidebar.caption(
+                f"Detected {len(audit_rows)} dates and {audit_rows['Room_Nights'].sum():,.0f} room sold."
+            )
+        except Exception as exc:
+            show_validation_banner([f"Night Audit report: {exc}"], level="error")
+
+    st.sidebar.markdown("### Energy Cost")
+    uploaded_energy_cost = st.sidebar.file_uploader(
+        "Upload Energy Cost workbook (.xlsx)",
+        type=["xlsx"],
+        key=f"energy_cost_upload_{selected_month}",
+        help="Extracts daily electricity and water amounts; existing room sold and linen data are preserved.",
+    )
+    if uploaded_energy_cost is not None:
+        try:
+            validate_upload_size(uploaded_energy_cost)
+            energy_rows = room_cost.parse_energy_cost_workbook(uploaded_energy_cost, selected_month)
+            duplicate_energy_dates = sorted(set(saved_daily_costs["Date"]) & set(energy_rows["Date"]))
+            if duplicate_energy_dates:
+                st.sidebar.warning("Energy data exists for: " + ", ".join(duplicate_energy_dates))
+                replace_energy_confirmed = st.sidebar.checkbox(
+                    "Confirm energy value replacement",
+                    key=f"energy_cost_replace_confirm_{selected_month}",
+                )
+            else:
+                replace_energy_confirmed = True
+
+            if st.sidebar.button(
+                "Save Energy Costs",
+                key=f"energy_cost_save_{selected_month}",
+                disabled=bool(duplicate_energy_dates) and not replace_energy_confirmed,
+                type="primary",
+            ):
+                merged_energy_rows = room_cost.merge_daily_room_costs(
+                    saved_daily_costs,
+                    energy_rows,
+                    replace_dates=replace_energy_confirmed,
+                    month=selected_month,
+                )
+                room_cost.save_daily_room_costs(selected_month, merged_energy_rows)
+                st.sidebar.success(
+                    f"Saved electricity Rp {energy_rows['Electricity'].sum():,.0f} and water Rp {energy_rows['Water'].sum():,.0f}."
+                )
+                st.rerun()
+            st.sidebar.caption(f"Detected energy data for {len(energy_rows)} date(s).")
+        except Exception as exc:
+            show_validation_banner([f"Energy Cost workbook: {exc}"], level="error")
+
+    st.sidebar.markdown("### Daily Linen Cost")
+    uploaded_linen_cost = st.sidebar.file_uploader(
+        "Upload Daily Linen Cost workbook (.xlsx)",
+        type=["xlsx"],
+        key=f"linen_cost_upload_{selected_month}",
+        help="Reads TOTAL BIAYA HARIAN by date and preserves saved room, water, and electricity data.",
+    )
+    if uploaded_linen_cost is not None:
+        try:
+            validate_upload_size(uploaded_linen_cost)
+            linen_rows = room_cost.parse_daily_linen_cost_workbook(uploaded_linen_cost, selected_month)
+            duplicate_linen_dates = sorted(set(saved_daily_costs["Date"]) & set(linen_rows["Date"]))
+            if duplicate_linen_dates:
+                st.sidebar.warning("Linen data exists for: " + ", ".join(duplicate_linen_dates))
+                replace_linen_confirmed = st.sidebar.checkbox(
+                    "Confirm linen value replacement",
+                    key=f"linen_cost_replace_confirm_{selected_month}",
+                )
+            else:
+                replace_linen_confirmed = True
+
+            if st.sidebar.button(
+                "Save Linen Costs",
+                key=f"linen_cost_save_{selected_month}",
+                disabled=bool(duplicate_linen_dates) and not replace_linen_confirmed,
+                type="primary",
+            ):
+                merged_linen_rows = room_cost.merge_daily_room_costs(
+                    saved_daily_costs,
+                    linen_rows,
+                    replace_dates=replace_linen_confirmed,
+                    month=selected_month,
+                )
+                room_cost.save_daily_room_costs(selected_month, merged_linen_rows)
+                st.sidebar.success(f"Saved linen total Rp {linen_rows['Linen_Laundry'].sum():,.0f}.")
+                st.rerun()
+            st.sidebar.caption(f"Detected linen costs for {len(linen_rows)} date(s).")
+        except Exception as exc:
+            show_validation_banner([f"Daily Linen Cost workbook: {exc}"], level="error")
+
+    room_cost_daily_df = pd.DataFrame()
+    room_cost_monthly_df = pd.DataFrame()
+    room_cost_warnings = []
+    if not saved_daily_costs.empty:
+        try:
+            room_cost_daily_df, room_cost_monthly_df, room_cost_warnings = room_cost.calculate_daily_room_costs(
+                sr_df, saved_daily_costs, selected_month
+            )
+            for warning in room_cost_warnings:
+                st.warning(warning)
+        except ValueError as exc:
+            show_validation_banner([f"Room-cost calculation: {exc}"], level="error")
+
     input_col_occupancy, input_col_rooms_sold = st.columns(2)
     with input_col_occupancy:
         occupancy_pct = st.number_input(
@@ -129,6 +351,8 @@ def render_sr_separator() -> None:
         sr_report_title,
         occupancy_pct=occupancy_pct,
         total_rooms_sold=total_rooms_sold,
+        room_cost_daily_df=room_cost_daily_df,
+        room_cost_monthly_df=room_cost_monthly_df,
     )
     st.sidebar.divider()
     st.sidebar.markdown("### 📥 Quick Export")
@@ -154,14 +378,15 @@ def render_sr_separator() -> None:
     ])
 
     # Tabs
-    tab_overview, tab_gs, tab_cs, tab_ps, tab_pst, tab_all, tab_exp = st.tabs([
+    tab_overview, tab_gs, tab_cs, tab_ps, tab_pst, tab_all, tab_exp, tab_room_cost = st.tabs([
         "📊 Category Overview",
         "🛎️ Guest Supplies",
         "🧹 Cleaning Supplies",
         "🧻 Paper Supplies",
         "📑 Print & Stationery",
         "📋 All Stock Requests Log",
-        "📥 Excel Export"
+        "📥 Excel Export",
+        "🏨 Daily Room Cost"
     ])
 
     cat_order = ['Guest Supplies', 'Cleaning Supplies', 'Paper Supplies', 'Print & Stationery']
@@ -171,38 +396,41 @@ def render_sr_separator() -> None:
         col_ch1, col_ch2 = st.columns([1, 1])
 
         cat_sum = sr_parser.get_category_summary(sr_df)
-        cat_sum['Spend_Per_Room_Sold'] = (
-            cat_sum['Total_Amount'].div(total_rooms_sold).apply(format_idr)
-            if rooms_sold_valid else 'N/A'
-        )
-
-        with col_ch1:
-            st.markdown("#### Spending Share by Category")
-            fig_pie = ui_components.themed_donut(cat_sum, names='Category', values='Total_Amount')
-            st.plotly_chart(fig_pie, width="stretch")
-
-        with col_ch2:
-            st.markdown("#### Top 10 Cost Drivers (All SR Items)")
-            top_10 = sr_df.groupby(['Item_Name', 'Category'], as_index=False)['Total'].sum().sort_values(by='Total', ascending=True).tail(10)
-            fig_bar = ui_components.themed_bar(
-                top_10,
-                x='Total',
-                y='Item_Name',
-                color='Category',
-                orientation='h',
-                value_axis_title="Total Spend (IDR)",
-                value_tickformat=',',
-                showlegend=False,
+        if cat_sum.empty:
+            ui_components.render_empty_state("SR category summaries will appear after SR PDFs are loaded.")
+        else:
+            cat_sum['Spend_Per_Room_Sold'] = (
+                cat_sum['Total_Amount'].div(total_rooms_sold).apply(format_idr)
+                if rooms_sold_valid else 'N/A'
             )
-            st.plotly_chart(fig_bar, width="stretch")
 
-        st.markdown("#### Category Breakdown Summary")
-        disp_cat = cat_sum.copy()
-        disp_cat['Total_Qty'] = disp_cat['Total_Qty'].apply(lambda x: f"{x:,.0f}")
-        disp_cat['Total_Amount'] = disp_cat['Total_Amount'].apply(format_idr)
-        disp_cat['Pct_Of_Total'] = disp_cat['Pct_Of_Total'].apply(lambda x: f"{x:.1f}%")
-        disp_cat['Spend_Per_Room_Sold'] = disp_cat['Spend_Per_Room_Sold'].astype(str)
-        st.dataframe(disp_cat, width="stretch", hide_index=True)
+            with col_ch1:
+                st.markdown("#### Spending Share by Category")
+                fig_pie = ui_components.themed_donut(cat_sum, names='Category', values='Total_Amount')
+                st.plotly_chart(fig_pie, width="stretch")
+
+            with col_ch2:
+                st.markdown("#### Top 10 Cost Drivers (All SR Items)")
+                top_10 = sr_df.groupby(['Item_Name', 'Category'], as_index=False)['Total'].sum().sort_values(by='Total', ascending=True).tail(10)
+                fig_bar = ui_components.themed_bar(
+                    top_10,
+                    x='Total',
+                    y='Item_Name',
+                    color='Category',
+                    orientation='h',
+                    value_axis_title="Total Spend (IDR)",
+                    value_tickformat=',',
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_bar, width="stretch")
+
+            st.markdown("#### Category Breakdown Summary")
+            disp_cat = cat_sum.copy()
+            disp_cat['Total_Qty'] = disp_cat['Total_Qty'].apply(lambda x: f"{x:,.0f}")
+            disp_cat['Total_Amount'] = disp_cat['Total_Amount'].apply(format_idr)
+            disp_cat['Pct_Of_Total'] = disp_cat['Pct_Of_Total'].apply(lambda x: f"{x:.1f}%")
+            disp_cat['Spend_Per_Room_Sold'] = disp_cat['Spend_Per_Room_Sold'].astype(str)
+            st.dataframe(disp_cat, width="stretch", hide_index=True)
 
     # Helper function for rendering a category tab
     def render_category_view(category_name: str, emoji: str):
@@ -301,3 +529,46 @@ def render_sr_separator() -> None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary"
         )
+
+    with tab_room_cost:
+        st.markdown(f"### Daily Room Cost • {selected_month}")
+        if room_cost_daily_df.empty:
+            ui_components.render_empty_state("Upload and save the daily cost Excel from the sidebar to calculate room cost.")
+        else:
+            latest = room_cost_monthly_df.iloc[0]
+            ui_components.render_kpi_row([
+                {'label': 'ROOM NIGHTS MTD', 'value': f"{latest['Room_Nights']:,.0f}",
+                 'delta': selected_month, 'delta_tone': 'neutral', 'show_arrow': False},
+                {'label': 'SR COST / ROOM', 'value': format_idr(latest['SR_Per_Room']),
+                 'delta': 'Current MTD rate, applied retroactively', 'delta_tone': 'neutral', 'show_arrow': False},
+                {'label': 'TOTAL COST / ROOM', 'value': format_idr(latest['Total_Cost_Per_Room']),
+                 'delta': 'Utilities, linen, and SR', 'delta_tone': 'neutral', 'show_arrow': False},
+                {'label': 'TOTAL ROOM COST', 'value': format_idr(latest['Total_Room_Cost']),
+                 'delta': 'Current MTD total', 'delta_tone': 'neutral', 'show_arrow': False},
+            ])
+
+            st.markdown("#### Monthly-to-date Summary")
+            monthly_display = room_cost_monthly_df.copy()
+            for column in [
+                "Water_Total", "Electricity_Total", "Linen_Laundry_Total", "SR_Total",
+                "Total_Room_Cost", "Water_Per_Room", "Electricity_Per_Room",
+                "Linen_Laundry_Per_Room", "SR_Per_Room", "Total_Cost_Per_Room",
+            ]:
+                monthly_display[column] = monthly_display[column].apply(_format_room_cost_value)
+            st.dataframe(monthly_display, width="stretch", hide_index=True)
+
+            st.markdown("#### Daily Breakdown")
+            daily_display = room_cost_daily_df[[
+                "Date", "Occupancy", "Room_Nights", "Water", "Water_Per_Room", "Electricity",
+                "Electricity_Per_Room", "Linen_Laundry", "Linen_Laundry_Per_Room",
+                "SR_Received_On_Date", "MTD_SR_Spend", "SR_Per_Room",
+                "Total_Cost_Per_Room", "Total_Room_Cost",
+            ]].copy()
+            for column in daily_display.columns:
+                if column == "Occupancy":
+                    daily_display[column] = daily_display[column].apply(
+                        lambda value: f"{value:.2f}%" if pd.notna(value) else ""
+                    )
+                elif column not in {"Date", "Room_Nights"}:
+                    daily_display[column] = daily_display[column].apply(_format_room_cost_value)
+            st.dataframe(daily_display, width="stretch", hide_index=True)

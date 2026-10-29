@@ -22,6 +22,25 @@ The application streamlines hotel financial reconciliation across two primary wo
      - 🧻 **Paper Supplies** (facial tissues, toilet rolls, hand towels, laundry packaging bags, etc.)
      - 📄 **Print & Stationery** (guest comments, discrepancy slips, stationery, etc.)
    - Generates separated summary workbooks and downloadable Excel breakdowns.
+  - Calculates **Daily Room Cost** from uploaded room nights, water, electricity, linen laundry, and SR vouchers.
+
+### Daily Room Cost
+
+From the SR Separator, choose a calendar month and upload an `.xlsx` workbook with one row per date and these columns:
+
+| Date | Occupancy (%) | Room Nights | Water | Electricity | Linen Laundry |
+|---|---:|---:|---:|---:|---:|
+| 2026-10-01 | 92.56 | 42 | 850000 | 320000 | 560000 |
+
+`Occupancy (%)` is optional and is populated by the Night Audit importer. `Room Nights` must be a positive whole number. Expense columns are daily total amounts in IDR; enter `0` when a cost is zero. When an imported date already exists, confirm before replacing that date's saved values. Daily inputs are stored locally by month, separately from the source report folders.
+
+Use **Night Audit Occupancy & Room Sold** in the SR Separator to import a Night Audit `.xlsx` report. The importer reads `DATE`, `EXP OCC`, and `OCC (%)`; existing water, electricity, and laundry amounts are preserved when Night Audit rows are merged. Dates without utility/laundry amounts remain visibly incomplete until daily cost data is uploaded.
+
+Use **Energy Cost** to import daily electricity and water from a workbook with `Tanggal`, `Penggunaan Listrik`, and `Penggunaan Air` columns. Day numbers such as `1` through `31` are interpreted in the selected month. When a date has no room-sold record yet, its imported utility values are saved while room nights remain blank; they are not treated as zero.
+
+Use **Daily Linen Cost** to import the `Tanggal` and `TOTAL BIAYA HARIAN` values from a linen workbook. The cumulative column is not added into the daily costs. If the workbook provides `Jumlah hari yang ada data`, zero-filled future dates after that count are ignored.
+
+Water, electricity, and linen laundry are divided by that day's room nights. SR spend and room nights are accumulated month-to-date; the current SR-per-room rate is total MTD SR spend divided by MTD room nights. The latest MTD rate is applied retroactively to the saved dates in that MTD period. Missing daily dates and SR vouchers outside the selected month are reported. The daily and MTD breakdown is available in the view and the exported `Room Cost Daily` worksheet.
 
 ---
 
@@ -38,6 +57,7 @@ The application streamlines hotel financial reconciliation across two primary wo
   - `matcher.py`: 100% transaction enrichment and budget reconciliation engine.
   - `exporter.py`: Excel workbook generation using OpenPyXL with stylized formatting.
   - `sr_parser.py`: Regex- and keyword-driven PDF extraction for warehouse store requisitions.
+  - `room_cost.py`: Daily Excel validation, MTD room-cost calculations, and local month-scoped storage.
   - `data/`: Automatic month folder discovery and portable filesystem resolution.
   - `ui/`: Security guardrails, password protection, and Indonesian Rupiah currency formatting.
 
@@ -106,6 +126,7 @@ The application automatically discovers month folders within default directories
 |---|---|---|
 | `HOTEL_DATA_DIR` | Custom root directory containing monthly folders | `~/Documents/Business Review` |
 | `HOTEL_SR_DIR` | Custom root directory containing SR PDF files | `HOTEL_DATA_DIR/SR REPORT` |
+| `HOTEL_ROOM_COST_DIR` | Separate directory for persisted daily room-cost inputs | `~/.hotel-expense-tracker/room_cost` |
 | `HOTEL_APP_PASSWORD` | App login password override | Fallback: `123456` |
 
 ### Expected Folder Structure:
@@ -154,6 +175,7 @@ The automated test suite verifies:
 - Consumption report parsing with short rows, pivot tables, and multi-department workbooks.
 - Budget vs. Actual reconciliation with category typo tolerances.
 - Multi-tab Excel report generation and formatting.
+- Daily room-cost Excel validation, MTD SR allocation, local persistence, and report export.
 - CLI argument handling and version flags.
 
 ---
@@ -168,6 +190,7 @@ amazing-mendel/
 ├── matcher.py              # Reconciliation and transaction enrichment engine
 ├── exporter.py             # Formatted Excel export generation
 ├── sr_parser.py            # Warehouse Store Request PDF parser and classifier
+├── room_cost.py            # Daily Room Cost validation, persistence, and calculations
 ├── separate_expenses.py    # Command-line interface for batch processing
 ├── build_windows_exe.py    # PyInstaller script for standalone Windows builds
 ├── run.sh                  # Convenience bash script to run the Streamlit app

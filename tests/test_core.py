@@ -15,6 +15,7 @@ from matcher import reconcile_monthly_expenses
 from exporter import create_separated_excel, create_sr_separated_excel
 from sr_parser import normalize_sr_labels
 from data.months import get_default_data_dir
+import room_cost
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +299,219 @@ class TestCreateSRSeparatedExcel:
         guest_sheet = workbook["Guest Supplies"]
         item_headers = {guest_sheet.cell(5, col).value: col for col in range(1, 10)}
         assert guest_sheet.cell(6, item_headers["Qty / Room Sold"]).value == "N/A"
+
+
+class TestDailyRoomCost:
+    @staticmethod
+    def daily_rows():
+        return pd.DataFrame([
+            {"Date": f"2026-10-0{day}", "Room Nights": nights,
+             "Water": 100000, "Electricity": 200000, "Linen Laundry": 300000}
+            for day, nights in [(1, 80), (2, 80), (3, 90), (4, 50)]
+        ])
+
+    def test_excel_import_normalizes_and_rejects_zero_room_nights(self):
+        workbook_buffer = BytesIO()
+        self.daily_rows().to_excel(workbook_buffer, index=False)
+        workbook_buffer.seek(0)
+
+        parsed = room_cost.parse_daily_room_cost_excel(workbook_buffer, "2026-10")
+
+        assert parsed.columns.tolist() == room_cost.DAILY_COLUMNS
+        assert parsed["Room_Nights"].sum() == 300
+        assert parsed.iloc[0]["Date"] == "2026-10-01"
+
+        invalid_rows = self.daily_rows().iloc[:1].copy()
+        invalid_rows.loc[0, "Room Nights"] = 0
+        with pytest.raises(ValueError, match="positive whole number"):
+            room_cost._normalise_daily_frame(invalid_rows, "2026-10")
+
+    def test_merge_requires_confirmation_and_persistence_round_trips(self, tmp_path):
+        saved = self.daily_rows().iloc[:2].copy()
+        imported = self.daily_rows().iloc[1:3].copy()
+        with pytest.raises(ValueError, match="confirm replacement"):
+            room_cost.merge_daily_room_costs(saved, imported, month="2026-10")
+
+        merged = room_cost.merge_daily_room_costs(
+            saved, imported, replace_dates=True, month="2026-10"
+        )
+        room_cost.save_daily_room_costs("2026-10", merged, str(tmp_path))
+        loaded = room_cost.load_daily_room_costs("2026-10", str(tmp_path))
+
+        assert loaded["Date"].tolist() == ["2026-10-01", "2026-10-02", "2026-10-03"]
+        assert loaded.loc[loaded["Date"] == "2026-10-02", "Water"].iloc[0] == 100000
+
+    def test_night_audit_parser_extracts_room_sold_and_occupancy(self):
+        workbook_buffer = BytesIO()
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.cell(1, 4, "DATE")
+        sheet.cell(1, 14, "EXP OCC")
+        sheet.cell(1, 17, "OCC (%)")
+        sheet.cell(2, 4, pd.Timestamp("2026-10-01").to_pydatetime())
+        sheet.cell(2, 14, 112)
+        sheet.cell(2, 17, 92.56)
+        sheet.cell(3, 4, pd.Timestamp("2026-10-02").to_pydatetime())
+        sheet.cell(3, 14, 100)
+        sheet.cell(3, 17, 82.65)
+        workbook.save(workbook_buffer)
+        workbook_buffer.seek(0)
+
+        audit_rows = room_cost.parse_night_audit_report(workbook_buffer, "2026-10")
+
+        assert audit_rows["Date"].tolist() == ["2026-10-01", "2026-10-02"]
+        assert audit_rows["Room_Nights"].tolist() == [112, 100]
+        assert audit_rows["Occupancy"].tolist() == [92.56, 82.65]
+        assert audit_rows["Water"].isna().all()
+
+    def test_night_audit_merge_preserves_saved_daily_costs(self):
+        saved = self.daily_rows().iloc[:1].copy()
+        saved["Occupancy"] = 75.0
+        audit = pd.DataFrame([{
+            "Date": "2026-10-01", "Occupancy": 92.56, "Room_Nights": 112,
+            "Water": pd.NA, "Electricity": pd.NA, "Linen_Laundry": pd.NA,
+        }])
+
+        merged = room_cost.merge_daily_room_costs(
+            saved, audit, replace_dates=True, month="2026-10"
+        )
+
+        assert merged.iloc[0]["Room_Nights"] == 112
+        assert merged.iloc[0]["Occupancy"] == 92.56
+        assert merged.iloc[0]["Water"] == 100000
+
+    def test_night_audit_rows_leave_combined_cost_incomplete(self):
+        audit = pd.DataFrame([{
+            "Date": "2026-10-01", "Occupancy": 92.56, "Room_Nights": 112,
+            "Water": pd.NA, "Electricity": pd.NA, "Linen_Laundry": pd.NA,
+        }])
+
+        daily, monthly, warnings = room_cost.calculate_daily_room_costs(
+            pd.DataFrame(columns=["Date", "Total"]), audit, "2026-10"
+        )
+
+        assert daily.iloc[0]["Room_Nights"] == 112
+        assert daily.iloc[0]["Occupancy"] == 92.56
+        assert pd.isna(daily.iloc[0]["Total_Cost_Per_Room"])
+        assert pd.isna(monthly.iloc[0]["Total_Cost_Per_Room"])
+        assert any("Water is missing" in warning for warning in warnings)
+
+    def test_energy_cost_parser_and_merge_preserve_other_fields(self):
+        workbook_buffer = BytesIO()
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["Energy Cost October 2026"])
+        sheet.append(["Tanggal", "Penggunaan Listrik", "Penggunaan Air"])
+        sheet.append([1, 3896712.6, 523900])
+        sheet.append([28, 2744183.62, 383760])
+        workbook.save(workbook_buffer)
+        workbook_buffer.seek(0)
+
+        imported = room_cost.parse_energy_cost_workbook(workbook_buffer, "2026-10")
+        saved = self.daily_rows().iloc[:1].copy()
+        saved["Occupancy"] = 92.56
+        merged = room_cost.merge_daily_room_costs(
+            saved, imported, replace_dates=True, month="2026-10"
+        )
+
+        assert imported["Date"].tolist() == ["2026-10-01", "2026-10-28"]
+        assert imported["Electricity"].sum() == pytest.approx(6640896.22)
+        assert imported["Water"].sum() == pytest.approx(907660)
+        assert merged.loc[merged.Date == "2026-10-01", "Room_Nights"].iloc[0] == 80
+        assert merged.loc[merged.Date == "2026-10-01", "Linen_Laundry"].iloc[0] == 300000
+        assert pd.isna(merged.loc[merged.Date == "2026-10-28", "Room_Nights"].iloc[0])
+
+        with tempfile.TemporaryDirectory() as storage_dir:
+            room_cost.save_daily_room_costs("2026-10", merged, storage_dir)
+            reloaded = room_cost.load_daily_room_costs("2026-10", storage_dir)
+        assert len(reloaded) == 2
+        assert reloaded.loc[reloaded.Date == "2026-10-28", "Electricity"].iloc[0] == pytest.approx(2744183.62)
+
+    def test_daily_linen_parser_uses_daily_total_and_active_day_count(self):
+        workbook_buffer = BytesIO()
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["DAILY LINEN COST"])
+        sheet.append([None, None, None, None, None, None, None, None])
+        sheet.append([None, None, None, None, None, None, None, None])
+        sheet.append(["Hari ke-", "Tanggal", "Linen (Regular)", "Spoting & OO",
+                      "Prewash 50%", "Pillow Case Drop N Go", "TOTAL BIAYA HARIAN", "Kumulatif"])
+        sheet.append([1, pd.Timestamp("2026-10-01").to_pydatetime(), 100, 20, 0, 30, 150, 150])
+        sheet.append([2, pd.Timestamp("2026-10-02").to_pydatetime(), 200, 0, 0, 50, 250, 400])
+        sheet.append([29, pd.Timestamp("2026-10-29").to_pydatetime(), 0, 0, 0, 0, 0, 400])
+        sheet.append([None, "Jumlah hari yang ada data", None, None, None, None, 2])
+        workbook.save(workbook_buffer)
+        workbook_buffer.seek(0)
+
+        imported = room_cost.parse_daily_linen_cost_workbook(workbook_buffer, "2026-10")
+
+        assert imported["Date"].tolist() == ["2026-10-01", "2026-10-02"]
+        assert imported["Linen_Laundry"].tolist() == [150, 250]
+        assert imported["Linen_Laundry"].sum() == 400
+
+    def test_mtd_sr_rate_aggregates_same_day_and_applies_retroactively(self):
+        sr_data = pd.DataFrame([
+            {"Date": "2026-10-01", "Total": 2000000},
+            {"Date": "2026-10-01", "Total": 3000000},
+            {"Date": "2026-10-04", "Total": 5000000},
+        ])
+
+        daily, monthly, warnings = room_cost.calculate_daily_room_costs(
+            sr_data, self.daily_rows(), "2026-10"
+        )
+
+        assert warnings == []
+        assert daily["SR_Received_On_Date"].tolist() == [5000000, 0, 0, 5000000]
+        assert daily["SR_Per_Room"].tolist() == pytest.approx([10000000 / 300] * 4)
+        assert daily["Total_Cost_Per_Room"].iloc[0] == pytest.approx(
+            100000 / 80 + 200000 / 80 + 300000 / 80 + 10000000 / 300
+        )
+        assert monthly.iloc[0]["Room_Nights"] == 300
+        assert monthly.iloc[0]["SR_Total"] == 10000000
+        assert monthly.iloc[0]["Total_Room_Cost"] == 10000000 + 4 * 600000
+
+    def test_invalid_and_out_of_month_sr_rows_are_reported(self):
+        sr_data = pd.DataFrame([
+            {"Date": "Unknown", "Total": 100},
+            {"Date": "2026-09-30", "Total": 200},
+        ])
+
+        _, _, warnings = room_cost.calculate_daily_room_costs(
+            sr_data, self.daily_rows(), "2026-10"
+        )
+
+        assert any("missing or invalid" in warning for warning in warnings)
+        assert any("outside 2026-10" in warning for warning in warnings)
+
+    def test_daily_room_cost_works_without_sr_rows(self):
+        daily, monthly, warnings = room_cost.calculate_daily_room_costs(
+            pd.DataFrame(columns=["Date", "Total"]),
+            self.daily_rows().iloc[:1],
+            "2026-10",
+        )
+
+        assert warnings == []
+        assert daily.iloc[0]["SR_Per_Room"] == 0
+        assert daily.iloc[0]["Total_Cost_Per_Room"] == 7500
+        assert monthly.iloc[0]["SR_Total"] == 0
+
+    def test_export_adds_daily_room_cost_sheet(self):
+        daily, monthly, _ = room_cost.calculate_daily_room_costs(
+            pd.DataFrame([{"Date": "2026-10-01", "Total": 5000000}]),
+            self.daily_rows().iloc[:1],
+            "2026-10",
+        )
+        workbook = openpyxl.load_workbook(BytesIO(create_sr_separated_excel(
+            pd.DataFrame(),
+            room_cost_daily_df=daily,
+            room_cost_monthly_df=monthly,
+        )), data_only=True)
+
+        sheet = workbook["Room Cost Daily"]
+        headers = {sheet.cell(8, col).value: col for col in range(1, sheet.max_column + 1)}
+        assert sheet["C5"].value == 80
+        assert sheet.cell(10, headers["SR Cost / Room (IDR)"]).value == 62500
+        assert sheet.cell(10, headers["Total Room Cost (IDR)"]).value == 5600000
 
 
 class TestNormalizeSRLabels:

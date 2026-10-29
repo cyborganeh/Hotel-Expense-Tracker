@@ -480,6 +480,8 @@ def create_sr_separated_excel(
     output_path: Optional[str] = None,
     occupancy_pct: Optional[float] = None,
     total_rooms_sold: Optional[int] = None,
+    room_cost_daily_df: Optional[pd.DataFrame] = None,
+    room_cost_monthly_df: Optional[pd.DataFrame] = None,
 ) -> bytes:
     """
     Builds a multi-tab separated Excel workbook for Stock Requests:
@@ -820,6 +822,75 @@ def create_sr_separated_excel(
 
         for col_i in range(1, 12):
             ws_all.cell(r_idx, col_i).border = thin_border
+
+    if room_cost_daily_df is not None and not room_cost_daily_df.empty:
+        ws_cost = wb.create_sheet(title="Room Cost Daily")
+        ws_cost.views.sheetView[0].showGridLines = True
+        ws_cost["A1"] = "Daily Room Cost"
+        ws_cost["A1"].font = title_font
+        ws_cost["A2"] = f"{sanitize_excel_value(report_title)} | Current MTD SR rate applied retroactively"
+        ws_cost["A2"].font = subtitle_font
+
+        monthly_headers = [
+            "Month", "Average Occupancy (%)", "Room Nights", "Water Total (IDR)", "Electricity Total (IDR)",
+            "Linen Laundry Total (IDR)", "SR Total (IDR)", "Total Room Cost (IDR)",
+            "Total Cost / Room (IDR)",
+        ]
+        for col_idx, header in enumerate(monthly_headers, 1):
+            cell = ws_cost.cell(4, col_idx, header)
+            cell.font = white_bold
+            cell.fill = dark_slate_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        monthly_row = room_cost_monthly_df.iloc[0] if room_cost_monthly_df is not None and not room_cost_monthly_df.empty else None
+        if monthly_row is not None:
+            monthly_values = [
+                monthly_row["Month"], monthly_row["Occupancy_Average"], monthly_row["Room_Nights"], monthly_row["Water_Total"],
+                monthly_row["Electricity_Total"], monthly_row["Linen_Laundry_Total"],
+                monthly_row["SR_Total"], monthly_row["Total_Room_Cost"], monthly_row["Total_Cost_Per_Room"],
+            ]
+            for col_idx, value in enumerate(monthly_values, 1):
+                cell = ws_cost.cell(5, col_idx, None if pd.isna(value) else value)
+                cell.font = bold_font
+                cell.border = thin_border
+                if col_idx == 2:
+                    cell.number_format = "0.00%"
+                    if not pd.isna(value):
+                        cell.value = value / 100
+                elif col_idx >= 4:
+                    cell.number_format = NUM_FMT_CURRENCY
+
+        daily_headers = [
+            "Date", "Occupancy (%)", "Room Nights", "Water Total (IDR)", "Water / Room (IDR)",
+            "Electricity Total (IDR)", "Electricity / Room (IDR)",
+            "Linen Laundry Total (IDR)", "Linen Laundry / Room (IDR)",
+            "SR Received (IDR)", "SR MTD Spend (IDR)", "MTD Room Nights",
+            "SR Cost / Room (IDR)", "Total Cost / Room (IDR)", "Total Room Cost (IDR)",
+        ]
+        for col_idx, header in enumerate(daily_headers, 1):
+            cell = ws_cost.cell(8, col_idx, header)
+            cell.font = white_bold
+            cell.fill = blue_header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        daily_columns = [
+            "Date", "Occupancy", "Room_Nights", "Water", "Water_Per_Room", "Electricity",
+            "Electricity_Per_Room", "Linen_Laundry", "Linen_Laundry_Per_Room",
+            "SR_Received_On_Date", "MTD_SR_Spend", "MTD_Room_Nights", "SR_Per_Room",
+            "Total_Cost_Per_Room", "Total_Room_Cost",
+        ]
+        for row_idx, (_, row) in enumerate(room_cost_daily_df.iterrows(), 9):
+            for col_idx, column in enumerate(daily_columns, 1):
+                value = row[column]
+                cell = ws_cost.cell(row_idx + 1, col_idx, None if pd.isna(value) else value)
+                cell.border = thin_border
+                cell.font = regular_font
+                if column == "Occupancy" and not pd.isna(value):
+                    cell.value = value / 100
+                    cell.number_format = "0.00%"
+                elif column not in {"Date", "Occupancy", "Room_Nights", "MTD_Room_Nights"}:
+                    cell.number_format = NUM_FMT_CURRENCY
+
+    # Auto-adjust column widths across all sheets
 
     # Auto-adjust column widths across all sheets
     for ws in wb.worksheets:
