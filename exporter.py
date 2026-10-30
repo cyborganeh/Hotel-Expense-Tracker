@@ -5,6 +5,7 @@ Creates multi-tab, beautifully styled, separated Excel workbooks using openpyxl.
 from typing import Dict, Any, Optional
 import io
 import logging
+from datetime import datetime, timedelta
 import pandas as pd
 import openpyxl
 
@@ -909,4 +910,330 @@ def create_sr_separated_excel(
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def create_morning_briefing_template(
+    month: str,
+    sr_data: Optional[pd.DataFrame] = None,
+    daily_cost_data: Optional[pd.DataFrame] = None,
+) -> bytes:
+    """Build an eight-sheet briefing workbook, prefilling available SR and daily data."""
+    try:
+        month_start = datetime.strptime(month, "%Y-%m").date()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Month must use YYYY-MM format.") from exc
+
+    from calendar import monthrange
+
+    days_in_month = monthrange(month_start.year, month_start.month)[1]
+    month_sr_data = pd.DataFrame()
+    if sr_data is not None and not sr_data.empty and {"Date", "Total"}.issubset(sr_data.columns):
+        sr_dates = pd.to_datetime(sr_data["Date"], errors="coerce", format="mixed")
+        month_sr_data = sr_data.loc[
+            sr_dates.dt.strftime("%Y-%m") == month,
+            [column for column in ("Date", "SR_Number", "Category", "Total") if column in sr_data.columns],
+        ].copy()
+    sr_rows = max(300, len(month_sr_data))
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    navy_fill = PatternFill(fill_type="solid", fgColor="17324D")
+    teal_fill = PatternFill(fill_type="solid", fgColor="167C80")
+    light_fill = PatternFill(fill_type="solid", fgColor="EAF3F3")
+    input_fill = PatternFill(fill_type="solid", fgColor="FFF4D6")
+    header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    title_font = Font(name="Calibri", size=16, bold=True, color="17324D")
+    note_font = Font(name="Calibri", size=10, italic=True, color="526579")
+    body_font = Font(name="Calibri", size=10, color="243746")
+    thin_border = Border(
+        left=Side(style="thin", color="D5E0E5"),
+        right=Side(style="thin", color="D5E0E5"),
+        top=Side(style="thin", color="D5E0E5"),
+        bottom=Side(style="thin", color="D5E0E5"),
+    )
+
+    sheet_specs = {
+        "Briefing": ["Morning Briefing", "Value", "Room Attendant", "Section / Floor", "Credit / Amount", "Description", "Status", "PIC", "Notes", "Follow Up"],
+        "SR Total MTD": ["Date", "SR Number", "Category", "Total (IDR)", "MTD Total (IDR)"],
+        "Daily Linen Cost MTD": ["Date", "Daily Linen Cost (IDR)", "MTD Total (IDR)"],
+        "Bon Vivo Guest Laundry MTD": [
+            "Date", "Room Nights", "Guest Laundry Cost (IDR)",
+            "Cost per Room (IDR)", "MTD Total (IDR)",
+        ],
+        "Project Public Area": [
+            "Date", "Project / Area", "Description", "Qty", "Unit", "Unit Cost (IDR)",
+            "Total (IDR)", "Status", "PIC", "Notes",
+        ],
+        "Daily Public Area": [
+            "Date", "Area", "Description", "Qty", "Unit Cost (IDR)",
+            "Total (IDR)", "PIC", "Notes",
+        ],
+        "Project RA": [
+            "Date", "Room Attendant", "Section / Floor", "Credit Kamar", "Project / Activity", "Notes",
+        ],
+        "Room Cost MTD": [
+            "Date", "Occupancy (%)", "Room Nights", "SR Supplies (IDR)",
+            "Air (IDR)", "Listrik (IDR)", "Linen (IDR)",
+            "Total Room Cost (IDR)", "Room Cost per Room (IDR)",
+        ],
+    }
+
+    def create_sheet(name: str, headers: list[str], note: str, rows: int) -> openpyxl.worksheet.worksheet.Worksheet:
+        worksheet = wb.create_sheet(name)
+        worksheet.freeze_panes = "A5"
+        worksheet.sheet_view.showGridLines = False
+        worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+        worksheet.cell(1, 1, name).font = title_font
+        worksheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=len(headers))
+        worksheet.cell(2, 1, f"Morning Briefing | {month} | {note}").font = note_font
+        for column, header in enumerate(headers, 1):
+            cell = worksheet.cell(4, column, header)
+            cell.font = header_font
+            cell.fill = navy_fill if name == "Briefing" else teal_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = thin_border
+        worksheet.row_dimensions[4].height = 32
+        for row_idx in range(5, 5 + rows):
+            for col_idx in range(1, len(headers) + 1):
+                cell = worksheet.cell(row_idx, col_idx)
+                cell.font = body_font
+                cell.border = thin_border
+                if row_idx % 2 == 0:
+                    cell.fill = light_fill
+        for col_idx, header in enumerate(headers, 1):
+            worksheet.column_dimensions[get_column_letter(col_idx)].width = min(max(len(header) + 3, 15), 34)
+        return worksheet
+
+    briefing_note = "Ringkasan satu hari; ubah tanggal untuk melihat hari lain. Rincian MTD ada di sheet pendukung."
+    briefing = create_sheet("Briefing", sheet_specs["Briefing"], briefing_note, 112)
+    sr_sheet = create_sheet(
+        "SR Total MTD", sheet_specs["SR Total MTD"],
+        "Masukkan satu baris per voucher atau item SR; total MTD dihitung otomatis.", sr_rows,
+    )
+    linen = create_sheet(
+        "Daily Linen Cost MTD", sheet_specs["Daily Linen Cost MTD"],
+        "Masukkan biaya linen harian; total MTD dihitung otomatis.", days_in_month,
+    )
+    laundry = create_sheet(
+        "Bon Vivo Guest Laundry MTD", sheet_specs["Bon Vivo Guest Laundry MTD"],
+        "Masukkan biaya guest laundry harian; biaya per room dan total MTD dihitung otomatis.", days_in_month,
+    )
+    project_pa = create_sheet(
+        "Project Public Area", sheet_specs["Project Public Area"],
+        "Masukkan rincian biaya proyek Public Area.", 200,
+    )
+    daily_pa = create_sheet(
+        "Daily Public Area", sheet_specs["Daily Public Area"],
+        "Masukkan biaya operasional Public Area harian.", 200,
+    )
+    project_ra = create_sheet(
+        "Project RA", sheet_specs["Project RA"],
+        "Masukkan satu baris per RA per tanggal; isi credit kamar dan project/activity untuk Briefing.", 200,
+    )
+    room_cost = create_sheet(
+        "Room Cost MTD", sheet_specs["Room Cost MTD"],
+        "Isi occupancy, room nights, air, listrik, dan linen; SR dan total dihitung otomatis.", days_in_month,
+    )
+
+    first_date = month_start
+    for day in range(days_in_month):
+        row = 5 + day
+        current_date = first_date.replace(day=day + 1)
+        for worksheet in (linen, laundry, room_cost):
+            worksheet.cell(row, 1, current_date)
+            worksheet.cell(row, 1).number_format = "dd mmm yyyy"
+        for col_idx in (2, 3, 5):
+            linen.cell(row, col_idx).fill = input_fill
+        for col_idx in (2, 3, 5, 6, 7):
+            room_cost.cell(row, col_idx).fill = input_fill
+        laundry.cell(row, 2).fill = input_fill
+        laundry.cell(row, 3).fill = input_fill
+        laundry.cell(row, 4, f'=IFERROR(C{row}/B{row},"")')
+        laundry.cell(row, 5, f'=SUM($C$5:C{row})')
+        linen.cell(row, 2).fill = input_fill
+        linen.cell(row, 3, f'=SUM($B$5:B{row})')
+
+        room_cost.cell(row, 4, f'=IFERROR(C{row}*SUM(\'SR Total MTD\'!$D$5:$D${4 + sr_rows})/SUM($C$5:$C${4 + days_in_month}),0)')
+        room_cost.cell(row, 8, f'=IF(COUNTA(C{row},E{row}:G{row})=0,"",SUM(D{row}:G{row}))')
+        room_cost.cell(row, 9, f'=IFERROR(H{row}/C{row},"")')
+
+        for worksheet, columns in ((room_cost, (2,)),):
+            for col_idx in columns:
+                worksheet.cell(row, col_idx).number_format = "0.00%"
+        for worksheet, columns in (
+            (room_cost, (4, 5, 6, 7, 8, 9)),
+            (linen, (2, 3)),
+            (laundry, (3, 4, 5)),
+        ):
+            for col_idx in columns:
+                worksheet.cell(row, col_idx).number_format = NUM_FMT_CURRENCY
+
+    yesterday = datetime.now().date() - timedelta(days=1)
+    briefing_date = yesterday if yesterday.strftime("%Y-%m") == month else month_start.replace(day=days_in_month)
+    briefing.merge_cells("A1:J1")
+    briefing["A1"] = "Morning Briefing"
+    briefing["A1"].font = title_font
+    briefing.merge_cells("A2:J2")
+    briefing["A2"] = f"Daily operational summary | {month} | MTD details are in the supporting sheets"
+    briefing["A2"].font = note_font
+    briefing["A4"] = "Tanggal Briefing"
+    briefing["B4"] = briefing_date
+    briefing["B4"].number_format = "dd mmm yyyy"
+    briefing["B4"].fill = input_fill
+    briefing["A5"] = "Tanggal Operasional (hari ini)"
+    briefing["B5"] = "=B4+1"
+    briefing["B5"].number_format = "dd mmm yyyy"
+    briefing["A6"] = "OCCUPANCY & STAFF"
+    briefing["A7"] = "Occupancy Semalam (%)"
+    briefing["B7"] = f'=IFERROR(INDEX(\'Room Cost MTD\'!$B$5:$B${4 + days_in_month},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${4 + days_in_month},0)),"")'
+    briefing["B7"].number_format = "0.00%"
+    briefing["A8"] = "Room Sold"
+    briefing["B8"] = f'=IFERROR(INDEX(\'Room Cost MTD\'!$C$5:$C${4 + days_in_month},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${4 + days_in_month},0)),"")'
+    briefing["A9"] = "Jumlah Staff RA"
+    briefing["B9"] = '=IFERROR(ROWS(UNIQUE(FILTER(\'Project RA\'!$B$5:$B$204,(\'Project RA\'!$A$5:$A$204=$B$4)*(\'Project RA\'!$B$5:$B$204<>""),""))),0)'
+    briefing["A10"] = "Staff Incharge"
+    briefing["B10"].fill = input_fill
+
+    def section_header(row: int, title: str) -> None:
+        briefing.merge_cells(start_row=row, start_column=1, end_row=row, end_column=10)
+        cell = briefing.cell(row, 1, title)
+        cell.font = header_font
+        cell.fill = teal_fill
+
+    def table_header(row: int, labels: list[str]) -> None:
+        for column, label in enumerate(labels, 1):
+            cell = briefing.cell(row, column, label)
+            cell.font = header_font
+            cell.fill = navy_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = thin_border
+
+    section_header(12, "ROOM CREDIT PER RA | HARI KEMARIN")
+    table_header(13, ["Room Attendant", "Section / Floor", "Credit Kamar", "Project / Activity", "Notes"])
+    briefing["A14"] = '=IFERROR(TAKE(FILTER(\'Project RA\'!$B$5:$F$204,\'Project RA\'!$A$5:$A$204=$B$4,""),20),"")'
+
+    section_header(36, "ROOM COST | DETAIL HARI KEMARIN")
+    table_header(37, ["Komponen", "Biaya per Kamar (IDR)"])
+    room_cost_rows = [
+        (38, "SR Supplies / kamar", "D"), (39, "Air / kamar", "E"),
+        (40, "Listrik / kamar", "F"), (41, "Linen / kamar", "G"),
+    ]
+    for row, label, column in room_cost_rows:
+        briefing.cell(row, 1, label)
+        briefing.cell(row, 2, f'=IFERROR(INDEX(\'Room Cost MTD\'!${column}$5:${column}${4 + days_in_month},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${4 + days_in_month},0))/INDEX(\'Room Cost MTD\'!$C$5:$C${4 + days_in_month},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${4 + days_in_month},0)),"")')
+        briefing.cell(row, 2).number_format = NUM_FMT_CURRENCY
+    briefing["A42"] = "TOTAL ROOM COST / KAMAR"
+    briefing["B42"] = '=IF(COUNT(B38:B41)<4,"",SUM(B38:B41))'
+    briefing["B42"].number_format = NUM_FMT_CURRENCY
+
+    section_header(45, "BON VIVO GUEST LAUNDRY | HARI KEMARIN")
+    table_header(46, ["Room Nights", "Laundry Cost (IDR)", "Cost / Room (IDR)"])
+    for col_idx, source_col in ((1, "B"), (2, "C"), (3, "D")):
+        briefing.cell(47, col_idx, f'=IFERROR(INDEX(\'Bon Vivo Guest Laundry MTD\'!${source_col}$5:${source_col}${4 + days_in_month},MATCH($B$4,\'Bon Vivo Guest Laundry MTD\'!$A$5:$A${4 + days_in_month},0)),"")')
+        if col_idx > 1:
+            briefing.cell(47, col_idx).number_format = NUM_FMT_CURRENCY
+
+    section_header(50, "PROJECT RA | HARI INI")
+    table_header(51, ["Room Attendant", "Section / Floor", "Credit Kamar", "Project / Activity", "Notes"])
+    briefing["A52"] = '=IFERROR(TAKE(FILTER(\'Project RA\'!$B$5:$F$204,\'Project RA\'!$A$5:$A$204=$B$5,""),15),"")'
+
+    section_header(69, "PROJECT PUBLIC AREA | HARI INI")
+    table_header(70, ["Project / Area", "Description", "Qty", "Unit", "Unit Cost", "Total", "Status", "PIC", "Notes"])
+    briefing["A71"] = '=IFERROR(TAKE(FILTER(\'Project Public Area\'!$B$5:$J$204,\'Project Public Area\'!$A$5:$A$204=$B$5,""),15),"")'
+
+    section_header(88, "DAILY PUBLIC AREA | HARI INI")
+    table_header(89, ["Area", "Description", "Qty", "Unit Cost", "Total", "PIC", "Notes"])
+    briefing["A90"] = '=IFERROR(TAKE(FILTER(\'Daily Public Area\'!$B$5:$H$204,\'Daily Public Area\'!$A$5:$A$204=$B$5,""),15),"")'
+
+    section_header(107, "REMARK / FOLLOW UP")
+    briefing.merge_cells("A108:J110")
+    briefing["A108"].fill = input_fill
+    briefing["A108"].alignment = Alignment(vertical="top", wrap_text=True)
+    briefing.row_dimensions[108].height = 30
+    briefing.row_dimensions[109].height = 24
+    briefing.row_dimensions[110].height = 24
+    briefing.freeze_panes = "A4"
+    briefing.sheet_properties.pageSetUpPr.fitToPage = True
+    briefing.page_setup.orientation = "landscape"
+    briefing.page_setup.fitToWidth = 1
+    briefing.page_setup.fitToHeight = 0
+    briefing.print_area = "A1:J110"
+    for column in range(1, 11):
+        briefing.column_dimensions[get_column_letter(column)].width = [24, 19, 20, 20, 19, 28, 16, 18, 30, 30][column - 1]
+    for row in range(1, 111):
+        for column in range(1, 11):
+            cell = briefing.cell(row, column)
+            if cell.value is not None and cell.border == Border():
+                cell.border = thin_border
+
+    if daily_cost_data is not None and not daily_cost_data.empty and "Date" in daily_cost_data.columns:
+        saved_dates = pd.to_datetime(daily_cost_data["Date"], errors="coerce", format="mixed")
+        saved_month_data = daily_cost_data.loc[saved_dates.dt.strftime("%Y-%m") == month]
+        date_to_row = {
+            month_start.replace(day=day + 1).isoformat(): 5 + day
+            for day in range(days_in_month)
+        }
+        for _, saved_row in saved_month_data.iterrows():
+            parsed_date = pd.to_datetime(saved_row["Date"], errors="coerce", format="mixed")
+            row_idx = date_to_row.get(parsed_date.date().isoformat())
+            if row_idx is None:
+                continue
+            for column, col_idx in (
+                ("Occupancy", 2), ("Room_Nights", 3), ("Water", 5),
+                ("Electricity", 6), ("Linen_Laundry", 7),
+            ):
+                value = saved_row.get(column)
+                if pd.notna(value):
+                    numeric_value = pd.to_numeric(value, errors="coerce")
+                    if pd.notna(numeric_value):
+                        room_cost.cell(
+                            row_idx, col_idx,
+                            float(numeric_value) / 100 if column == "Occupancy" else float(numeric_value),
+                        )
+                        if column == "Linen_Laundry":
+                            linen.cell(row_idx, 2, float(numeric_value))
+                            linen.cell(row_idx, 2).number_format = NUM_FMT_CURRENCY
+
+    for row in range(5, 5 + sr_rows):
+        sr_sheet.cell(row, 5, f'=SUM($D$5:D{row})')
+        sr_sheet.cell(row, 4).fill = input_fill
+        for col_idx in (4, 5):
+            sr_sheet.cell(row, col_idx).number_format = NUM_FMT_CURRENCY
+        for col_idx in (1, 2, 3):
+            sr_sheet.cell(row, col_idx).fill = input_fill
+    for row_idx, (_, sr_row) in enumerate(month_sr_data.iterrows(), 5):
+        parsed_date = pd.to_datetime(sr_row["Date"], errors="coerce", format="mixed")
+        sr_sheet.cell(row_idx, 1, parsed_date.to_pydatetime())
+        sr_sheet.cell(row_idx, 1).number_format = "dd mmm yyyy"
+        for col_idx, column in ((2, "SR_Number"), (3, "Category")):
+            if column in sr_row and pd.notna(sr_row[column]):
+                sr_sheet.cell(row_idx, col_idx, sanitize_excel_value(sr_row[column]))
+        sr_total = pd.to_numeric(sr_row["Total"], errors="coerce")
+        sr_sheet.cell(row_idx, 4, None if pd.isna(sr_total) else float(sr_total))
+        sr_sheet.cell(row_idx, 4).fill = input_fill
+        sr_sheet.cell(row_idx, 4).number_format = NUM_FMT_CURRENCY
+    sr_sheet.column_dimensions["A"].width = 17
+    project_pa.column_dimensions["C"].width = 32
+    daily_pa.column_dimensions["C"].width = 32
+    project_ra.column_dimensions["B"].width = 24
+    project_ra.column_dimensions["E"].width = 32
+
+    for worksheet in (project_pa, daily_pa):
+        for row in range(5, worksheet.max_row + 1):
+            qty_col = 4
+            cost_col = 6 if worksheet is project_pa else 5
+            total_col = 7 if worksheet is project_pa else 6
+            worksheet.cell(row, total_col, f'=IFERROR(D{row}*{get_column_letter(cost_col)}{row},"")')
+            worksheet.cell(row, total_col).number_format = NUM_FMT_CURRENCY
+            for col_idx in range(1, worksheet.max_column + 1):
+                if col_idx != total_col:
+                    worksheet.cell(row, col_idx).fill = input_fill
+
+    for worksheet in wb.worksheets:
+        if worksheet.title != "Briefing":
+            worksheet.auto_filter.ref = f"A4:{get_column_letter(worksheet.max_column)}{worksheet.max_row}"
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
 

@@ -2,6 +2,7 @@
 import os
 import sys
 import tempfile
+import json
 from io import BytesIO
 import pytest
 import pandas as pd
@@ -12,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from parser import find_month_files, parse_detail_trial_balance, parse_consumption_report
 from matcher import reconcile_monthly_expenses
-from exporter import create_separated_excel, create_sr_separated_excel
+from exporter import create_separated_excel, create_sr_separated_excel, create_morning_briefing_template
 from sr_parser import normalize_sr_labels
 from data.months import get_default_data_dir
 import room_cost
@@ -341,6 +342,69 @@ class TestDailyRoomCost:
         assert loaded["Date"].tolist() == ["2026-10-01", "2026-10-02", "2026-10-03"]
         assert loaded.loc[loaded["Date"] == "2026-10-02", "Water"].iloc[0] == 100000
 
+    def test_existing_json_and_workbook_migrate_to_sqlite_idempotently(self, tmp_path):
+        legacy_path = tmp_path / "2026-10.json"
+        legacy_rows = [{
+            "Date": "2026-10-01", "Occupancy": 90.0, "Room_Nights": 90,
+            "Water": 100, "Electricity": 200, "Linen_Laundry": 300,
+        }]
+        legacy_path.write_text(json.dumps(legacy_rows), encoding="utf-8")
+        source_path = tmp_path / "active_report.xlsx"
+        source_workbook = openpyxl.Workbook()
+        source_sheet = source_workbook.active
+        source_sheet.title = "Daily"
+        source_sheet.append(["Date", "Room Sold"])
+        source_sheet.append(["2026-10-01", 90])
+        source_workbook.save(source_path)
+        original_json = legacy_path.read_text(encoding="utf-8")
+
+        first_migration = room_cost.migrate_existing_data_to_database(
+            "2026-10", [str(source_path)], str(tmp_path)
+        )
+        second_migration = room_cost.migrate_existing_data_to_database(
+            "2026-10", [str(source_path)], str(tmp_path)
+        )
+        loaded = room_cost.load_daily_room_costs("2026-10", str(tmp_path))
+
+        assert first_migration["room_cost_rows_imported"] == 1
+        assert first_migration["workbooks"][0]["imported"] is True
+        assert first_migration["workbooks"][0]["rows"] == 2
+        assert second_migration["room_cost_rows_imported"] == 0
+        assert second_migration["workbooks"][0]["imported"] is False
+        assert loaded.loc[0, "Room_Nights"] == 90
+        assert legacy_path.read_text(encoding="utf-8") == original_json
+        assert os.path.exists(first_migration["database"])
+
+    def test_manual_briefing_entries_save_reload_and_replace(self, tmp_path):
+        entries = pd.DataFrame([
+            {"Entry_Type": "ra", "Staff_Name": "Ayu", "Section": "Floor 2", "Room_Credit": 14},
+            {"Entry_Type": "guest_laundry", "Qty": 10, "Unit_Cost": 2500},
+            {"Entry_Type": "project_pa", "Area": "Lobby", "Description": "Polish floor", "Qty": 2, "Unit_Cost": 50000},
+            {"Entry_Type": "daily_pa", "Area": "Pool", "Description": "Clean deck", "Qty": 1, "Unit_Cost": 30000},
+        ])
+
+        room_cost.save_manual_briefing_data(
+            "2026-10-29", staff_incharge="Budi", remarks="Check lobby floor",
+            entries=entries, storage_dir=str(tmp_path),
+        )
+        saved = room_cost.load_manual_briefing_data("2026-10-29", str(tmp_path))
+
+        assert saved["Staff_Incharge"] == "Budi"
+        assert saved["Remarks"] == "Check lobby floor"
+        assert len(saved["Entries"]) == 4
+        project_total = saved["Entries"].loc[
+            saved["Entries"]["Entry_Type"] == "project_pa", "Total"
+        ].iloc[0]
+        assert project_total == 100000
+
+        room_cost.save_manual_briefing_data(
+            "2026-10-29", staff_incharge="Budi", remarks="Updated",
+            entries=entries.iloc[:1], storage_dir=str(tmp_path),
+        )
+        replaced = room_cost.load_manual_briefing_data("2026-10-29", str(tmp_path))
+        assert replaced["Remarks"] == "Updated"
+        assert len(replaced["Entries"]) == 1
+
     def test_night_audit_parser_extracts_room_sold_and_occupancy(self):
         workbook_buffer = BytesIO()
         workbook = openpyxl.Workbook()
@@ -470,6 +534,28 @@ class TestDailyRoomCost:
         assert monthly.iloc[0]["SR_Total"] == 10000000
         assert monthly.iloc[0]["Total_Room_Cost"] == 10000000 + 4 * 600000
 
+    def test_daily_room_cost_exposes_sr_categories_and_sums_all_components_per_room(self):
+        sr_data = pd.DataFrame([
+            {"Date": "2026-10-01", "Category": "Guest Supplies", "Total": 2000},
+            {"Date": "2026-10-01", "Category": "Cleaning Supplies", "Total": 3000},
+            {"Date": "2026-10-01", "Category": "Paper Supplies", "Total": 4000},
+            {"Date": "2026-10-01", "Category": "Print & Stationery", "Total": 1000},
+        ])
+        daily_input = pd.DataFrame([{
+            "Date": "2026-10-01", "Room_Nights": 10,
+            "Water": 100, "Electricity": 200, "Linen_Laundry": 300,
+        }])
+
+        daily, _, _ = room_cost.calculate_daily_room_costs(sr_data, daily_input, "2026-10")
+        daily_row = daily.iloc[0]
+
+        assert daily_row["Guest_Supplies_Per_Room"] == 200
+        assert daily_row["Cleaning_Supplies_Per_Room"] == 300
+        assert daily_row["Paper_Supplies_Per_Room"] == 400
+        assert daily_row["Print_Stationery_Per_Room"] == 100
+        assert daily_row["SR_Per_Room"] == 1000
+        assert daily_row["Total_Cost_Per_Room"] == 1060
+
     def test_invalid_and_out_of_month_sr_rows_are_reported(self):
         sr_data = pd.DataFrame([
             {"Date": "Unknown", "Total": 100},
@@ -512,6 +598,60 @@ class TestDailyRoomCost:
         assert sheet["C5"].value == 80
         assert sheet.cell(10, headers["SR Cost / Room (IDR)"]).value == 62500
         assert sheet.cell(10, headers["Total Room Cost (IDR)"]).value == 5600000
+
+    def test_morning_briefing_template_has_eight_sheets_and_daily_formulas(self):
+        workbook = openpyxl.load_workbook(
+            BytesIO(create_morning_briefing_template(
+                "2026-10",
+                sr_data=pd.DataFrame([{
+                    "Date": "2026-10-01", "SR_Number": "SR-001",
+                    "Category": "Guest Supplies", "Total": 90000,
+                }]),
+                daily_cost_data=pd.DataFrame([{
+                    "Date": "2026-10-01", "Occupancy": 90.0, "Room_Nights": 90,
+                    "Water": 9000, "Electricity": 18000, "Linen_Laundry": 4500,
+                }]),
+            )), data_only=False
+        )
+
+        assert workbook.sheetnames == [
+            "Briefing", "SR Total MTD", "Daily Linen Cost MTD",
+            "Bon Vivo Guest Laundry MTD", "Project Public Area",
+            "Daily Public Area", "Project RA", "Room Cost MTD",
+        ]
+        briefing = workbook["Briefing"]
+        room_cost = workbook["Room Cost MTD"]
+        assert briefing.max_column == 10
+        assert briefing["A4"].value == "Tanggal Briefing"
+        assert briefing["B4"].value.date().isoformat() == "2026-10-29"
+        assert briefing["A5"].value == "Tanggal Operasional (hari ini)"
+        assert briefing["B5"].value == "=B4+1"
+        assert "INDEX('Room Cost MTD'!$B$5:$B$35" in briefing["B7"].value
+        assert "ROWS(UNIQUE(FILTER('Project RA'!" in briefing["B9"].value
+        assert "TAKE(FILTER('Project RA'!" in briefing["A14"].value
+        assert "=$B$4" in briefing["A14"].value
+        assert briefing["A42"].value == "TOTAL ROOM COST / KAMAR"
+        assert "INDEX('Room Cost MTD'!$D$5:$D$35" in briefing["B38"].value
+        assert "/INDEX('Room Cost MTD'!$C$5:$C$35" in briefing["B38"].value
+        assert briefing["B42"].value == '=IF(COUNT(B38:B41)<4,"",SUM(B38:B41))'
+        assert "'Room Cost MTD'!$H$5:$H$35" not in briefing["B42"].value
+        assert "Bon Vivo Guest Laundry MTD" in briefing["A47"].value
+        assert "TAKE(FILTER('Project Public Area'!" in briefing["A71"].value
+        assert "=$B$5" in briefing["A71"].value
+        assert "TAKE(FILTER('Daily Public Area'!" in briefing["A90"].value
+        assert "=$B$5" in briefing["A90"].value
+        assert briefing["A108"].value is None
+        assert "SUM('SR Total MTD'!" in room_cost["D5"].value
+        assert workbook["SR Total MTD"]["B5"].value == "SR-001"
+        assert workbook["SR Total MTD"]["D5"].value == 90000
+        linen = workbook["Daily Linen Cost MTD"]
+        assert linen["B5"].value == 4500
+        assert linen["C5"].value == "=SUM($B$5:B5)"
+        assert room_cost["B5"].value == 0.9
+        assert room_cost["C5"].value == 90
+        assert room_cost["H5"].value == '=IF(COUNTA(C5,E5:G5)=0,"",SUM(D5:G5))'
+        assert room_cost["A35"].value.date().isoformat() == "2026-10-31"
+        assert room_cost["A36"].value is None
 
 
 class TestNormalizeSRLabels:

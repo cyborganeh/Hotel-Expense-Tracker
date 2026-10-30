@@ -365,6 +365,15 @@ def render_sr_separator() -> None:
         width="stretch",
         type="primary"
     )
+    st.sidebar.download_button(
+        label="Download Morning Briefing Template (.xlsx)",
+        data=exporter.create_morning_briefing_template(
+            selected_month, sr_data=sr_df, daily_cost_data=saved_daily_costs
+        ),
+        file_name=f"Morning_Briefing_{selected_month}_with_data.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        width="stretch",
+    )
 
     ui_components.render_kpi_row([
         {'label': 'TOTAL SPEND (SR)', 'value': format_idr(tot_amt),
@@ -532,15 +541,195 @@ def render_sr_separator() -> None:
 
     with tab_room_cost:
         st.markdown(f"### Daily Room Cost • {selected_month}")
+        month_start_date = pd.Timestamp(f"{selected_month}-01").date()
+        month_end_date = pd.Period(selected_month).end_time.date()
+        default_entry_date = (
+            min(pd.Timestamp.today().date() - pd.Timedelta(days=1), month_end_date)
+            if selected_month == pd.Timestamp.today().strftime("%Y-%m")
+            else month_end_date
+        )
+        manual_date = st.date_input(
+            "Manual entry date",
+            value=default_entry_date,
+            min_value=month_start_date,
+            max_value=month_end_date,
+            key=f"manual_entry_date_{selected_month}",
+        )
+        manual_date_text = manual_date.isoformat()
+        selected_daily_row = saved_daily_costs.loc[saved_daily_costs["Date"] == manual_date_text]
+        selected_daily_row = selected_daily_row.iloc[0] if not selected_daily_row.empty else None
+        manual_data = room_cost.load_manual_briefing_data(manual_date_text)
+        manual_entries = manual_data["Entries"]
+
+        def _daily_default(column: str, default: float = 0.0) -> float:
+            if selected_daily_row is None or pd.isna(selected_daily_row.get(column)):
+                return default
+            return float(selected_daily_row[column])
+
+        def _editor_values(entry_type: str, columns: list[str]) -> pd.DataFrame:
+            subset = manual_entries.loc[manual_entries["Entry_Type"] == entry_type, columns]
+            subset = subset.reset_index(drop=True).copy()
+            for numeric_column in ("Room_Credit", "Qty", "Unit_Cost"):
+                if numeric_column in subset.columns:
+                    subset[numeric_column] = pd.to_numeric(subset[numeric_column], errors="coerce")
+            return subset
+
+        st.markdown("#### Input Manual Harian")
+        with st.form(f"manual_daily_entry_form_{selected_month}_{manual_date_text}"):
+            st.caption("Isi Room Cost, staff, credit RA, laundry, aktivitas area, dan follow-up untuk tanggal yang dipilih.")
+            cost_col1, cost_col2, cost_col3 = st.columns(3)
+            with cost_col1:
+                manual_occupancy = st.number_input(
+                    "Occupancy (%)", min_value=0.0, max_value=100.0,
+                    value=_daily_default("Occupancy"), step=0.1, format="%.2f",
+                )
+                manual_room_nights = st.number_input(
+                    "Room Sold", min_value=0, step=1,
+                    value=int(_daily_default("Room_Nights")),
+                )
+            with cost_col2:
+                manual_water = st.number_input(
+                    "Air (IDR)", min_value=0.0, value=_daily_default("Water"), step=1000.0,
+                )
+                manual_electricity = st.number_input(
+                    "Listrik (IDR)", min_value=0.0, value=_daily_default("Electricity"), step=1000.0,
+                )
+            with cost_col3:
+                manual_linen = st.number_input(
+                    "Linen (IDR)", min_value=0.0, value=_daily_default("Linen_Laundry"), step=1000.0,
+                )
+                manual_laundry_cost = st.number_input(
+                    "Bon Vivo Guest Laundry (IDR)", min_value=0.0,
+                    value=float(manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry", "Total"].iloc[-1])
+                    if not manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry"].empty
+                    and pd.notna(manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry", "Total"].iloc[-1]) else 0.0,
+                    step=1000.0,
+                )
+            laundry_room_nights_default = int(
+                manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry", "Qty"].iloc[-1]
+            ) if not manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry"].empty and pd.notna(
+                manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry", "Qty"].iloc[-1]
+            ) else 0
+            laundry_room_nights = st.number_input(
+                "Guest Laundry Room Nights", min_value=0, step=1, value=laundry_room_nights_default,
+            )
+
+            staff_incharge = st.text_input(
+                "Staff Incharge", value=manual_data["Staff_Incharge"],
+            )
+            remarks = st.text_area("Remark / Follow Up", value=manual_data["Remarks"])
+
+            st.markdown("**Room Attendant / Room Credit**")
+            ra_editor_columns = ["Staff_Name", "Section", "Room_Credit", "Description", "Notes"]
+            ra_editor = st.data_editor(
+                _editor_values("ra", ra_editor_columns), num_rows="dynamic", hide_index=True,
+                column_config={
+                    "Staff_Name": st.column_config.TextColumn("Room Attendant"),
+                    "Section": st.column_config.TextColumn("Section / Floor"),
+                    "Room_Credit": st.column_config.NumberColumn("Room Credit", min_value=0, step=1),
+                    "Description": st.column_config.TextColumn("Activity / Project"),
+                    "Notes": st.column_config.TextColumn("Notes"),
+                },
+                key=f"manual_ra_editor_{selected_month}_{manual_date_text}",
+            )
+            st.markdown("**Project Public Area**")
+            project_editor_columns = ["Area", "Description", "Qty", "Unit", "Unit_Cost", "Status", "PIC", "Notes"]
+            project_editor = st.data_editor(
+                _editor_values("project_pa", project_editor_columns), num_rows="dynamic", hide_index=True,
+                column_config={
+                    "Area": st.column_config.TextColumn("Project / Area"),
+                    "Description": st.column_config.TextColumn("Description"),
+                    "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
+                    "Unit": st.column_config.TextColumn("Unit"),
+                    "Unit_Cost": st.column_config.NumberColumn("Unit Cost (IDR)", min_value=0, step=1000),
+                    "Status": st.column_config.TextColumn("Status"),
+                    "PIC": st.column_config.TextColumn("PIC"),
+                    "Notes": st.column_config.TextColumn("Notes"),
+                },
+                key=f"manual_project_editor_{selected_month}_{manual_date_text}",
+            )
+            st.markdown("**Daily Public Area**")
+            daily_pa_editor_columns = ["Area", "Description", "Qty", "Unit_Cost", "PIC", "Notes"]
+            daily_pa_editor = st.data_editor(
+                _editor_values("daily_pa", daily_pa_editor_columns), num_rows="dynamic", hide_index=True,
+                column_config={
+                    "Area": st.column_config.TextColumn("Area"),
+                    "Description": st.column_config.TextColumn("Description"),
+                    "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
+                    "Unit_Cost": st.column_config.NumberColumn("Unit Cost (IDR)", min_value=0, step=1000),
+                    "PIC": st.column_config.TextColumn("PIC"),
+                    "Notes": st.column_config.TextColumn("Notes"),
+                },
+                key=f"manual_daily_pa_editor_{selected_month}_{manual_date_text}",
+            )
+            save_manual_entry = st.form_submit_button("Simpan Input Manual", type="primary")
+
+        if save_manual_entry:
+            if manual_room_nights <= 0:
+                st.error("Room Sold harus lebih dari 0 untuk menyimpan biaya per kamar.")
+            else:
+                manual_cost_row = pd.DataFrame([{
+                    "Date": manual_date_text,
+                    "Occupancy": manual_occupancy,
+                    "Room_Nights": manual_room_nights,
+                    "Water": manual_water,
+                    "Electricity": manual_electricity,
+                    "Linen_Laundry": manual_linen,
+                }])
+                merged_manual_costs = room_cost.merge_daily_room_costs(
+                    saved_daily_costs, manual_cost_row, replace_dates=True, month=selected_month,
+                )
+                room_cost.save_daily_room_costs(selected_month, merged_manual_costs)
+
+                manual_records = []
+                editor_mappings = [
+                    ("ra", ra_editor, {
+                        "Staff_Name": "Staff_Name", "Section": "Section", "Room_Credit": "Room_Credit",
+                        "Description": "Description", "Notes": "Notes",
+                    }),
+                    ("project_pa", project_editor, {
+                        "Area": "Area", "Description": "Description", "Qty": "Qty", "Unit": "Unit",
+                        "Unit_Cost": "Unit_Cost", "Status": "Status", "PIC": "PIC", "Notes": "Notes",
+                    }),
+                    ("daily_pa", daily_pa_editor, {
+                        "Area": "Area", "Description": "Description", "Qty": "Qty",
+                        "Unit_Cost": "Unit_Cost", "PIC": "PIC", "Notes": "Notes",
+                    }),
+                ]
+                for entry_type, frame, mapping in editor_mappings:
+                    for editor_row in frame.to_dict(orient="records"):
+                        if not any(value is not None and not pd.isna(value) and str(value).strip() for value in editor_row.values()):
+                            continue
+                        record = {"Entry_Type": entry_type}
+                        record.update({target: editor_row.get(source) for source, target in mapping.items()})
+                        manual_records.append(record)
+                if manual_laundry_cost or laundry_room_nights:
+                    manual_records.append({
+                        "Entry_Type": "guest_laundry",
+                        "Qty": laundry_room_nights,
+                        "Total": manual_laundry_cost,
+                    })
+                room_cost.save_manual_briefing_data(
+                    manual_date_text,
+                    staff_incharge=staff_incharge,
+                    remarks=remarks,
+                    entries=pd.DataFrame(manual_records),
+                )
+                st.success(f"Input manual tanggal {manual_date_text} tersimpan di SQLite.")
+                st.rerun()
+
         if room_cost_daily_df.empty:
             ui_components.render_empty_state("Upload and save the daily cost Excel from the sidebar to calculate room cost.")
         else:
             latest = room_cost_monthly_df.iloc[0]
+            latest_daily = room_cost_daily_df.iloc[-1]
             ui_components.render_kpi_row([
                 {'label': 'ROOM NIGHTS MTD', 'value': f"{latest['Room_Nights']:,.0f}",
                  'delta': selected_month, 'delta_tone': 'neutral', 'show_arrow': False},
                 {'label': 'SR COST / ROOM', 'value': format_idr(latest['SR_Per_Room']),
                  'delta': 'Current MTD rate, applied retroactively', 'delta_tone': 'neutral', 'show_arrow': False},
+                {'label': 'LATEST DAILY COST / ROOM', 'value': _format_room_cost_value(latest_daily['Total_Cost_Per_Room']),
+                 'delta': str(latest_daily['Date']), 'delta_tone': 'neutral', 'show_arrow': False},
                 {'label': 'TOTAL COST / ROOM', 'value': format_idr(latest['Total_Cost_Per_Room']),
                  'delta': 'Utilities, linen, and SR', 'delta_tone': 'neutral', 'show_arrow': False},
                 {'label': 'TOTAL ROOM COST', 'value': format_idr(latest['Total_Room_Cost']),
@@ -559,8 +748,11 @@ def render_sr_separator() -> None:
 
             st.markdown("#### Daily Breakdown")
             daily_display = room_cost_daily_df[[
-                "Date", "Occupancy", "Room_Nights", "Water", "Water_Per_Room", "Electricity",
-                "Electricity_Per_Room", "Linen_Laundry", "Linen_Laundry_Per_Room",
+                "Date", "Occupancy", "Room_Nights",
+                "Guest_Supplies_Per_Room", "Cleaning_Supplies_Per_Room",
+                "Paper_Supplies_Per_Room", "Print_Stationery_Per_Room", "Other_SR_Per_Room",
+                "Water", "Water_Per_Room", "Electricity", "Electricity_Per_Room",
+                "Linen_Laundry", "Linen_Laundry_Per_Room",
                 "SR_Received_On_Date", "MTD_SR_Spend", "SR_Per_Room",
                 "Total_Cost_Per_Room", "Total_Room_Cost",
             ]].copy()

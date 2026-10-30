@@ -32,13 +32,30 @@ From the SR Separator, choose a calendar month and upload an `.xlsx` workbook wi
 |---|---:|---:|---:|---:|---:|
 | 2026-10-01 | 92.56 | 42 | 850000 | 320000 | 560000 |
 
-`Occupancy (%)` is optional and is populated by the Night Audit importer. `Room Nights` must be a positive whole number. Expense columns are daily total amounts in IDR; enter `0` when a cost is zero. When an imported date already exists, confirm before replacing that date's saved values. Daily inputs are stored locally by month, separately from the source report folders.
+`Occupancy (%)` is optional and is populated by the Night Audit importer. `Room Nights` must be a positive whole number. Expense columns are daily total amounts in IDR; enter `0` when a cost is zero. When an imported date already exists, confirm before replacing that date's saved values. Daily inputs are stored in the local SQLite database `hotel_data.sqlite3` under the room-cost storage directory. Existing monthly JSON files are imported automatically as a compatibility backup and are not deleted.
+
+Existing October 2026 operational data can be copied into SQLite with `room_cost.migrate_existing_data_to_database(month, source_files)`. This imports saved daily room costs and archives non-empty rows from selected Excel workbooks. Imports are idempotent by file content hash. Source workbooks and legacy JSON files remain unchanged; the database is stored at `~/.hotel-expense-tracker/room_cost/hotel_data.sqlite3` by default.
 
 Use **Night Audit Occupancy & Room Sold** in the SR Separator to import a Night Audit `.xlsx` report. The importer reads `DATE`, `EXP OCC`, and `OCC (%)`; existing water, electricity, and laundry amounts are preserved when Night Audit rows are merged. Dates without utility/laundry amounts remain visibly incomplete until daily cost data is uploaded.
 
 Use **Energy Cost** to import daily electricity and water from a workbook with `Tanggal`, `Penggunaan Listrik`, and `Penggunaan Air` columns. Day numbers such as `1` through `31` are interpreted in the selected month. When a date has no room-sold record yet, its imported utility values are saved while room nights remain blank; they are not treated as zero.
 
 Use **Daily Linen Cost** to import the `Tanggal` and `TOTAL BIAYA HARIAN` values from a linen workbook. The cumulative column is not added into the daily costs. If the workbook provides `Jumlah hari yang ada data`, zero-filled future dates after that count are ignored.
+
+In **Daily Room Cost**, use **Input Manual Harian** to enter or update a date without uploading a workbook. The form saves occupancy, room sold, water, electricity, linen, staff incharge, RA room credits, Bon Vivo guest laundry, Public Area activities, and follow-up remarks to the local SQLite database. Existing values for the selected date are loaded for editing; saving replaces that date's manual entries and leaves other dates untouched.
+
+Use **Download Morning Briefing Template (.xlsx)** to export an eight-sheet workbook:
+
+1. `Briefing` — one-day operational summary for the selected reporting date (defaults to yesterday), including occupancy, room sold, RA credit, room-cost components per occupied room, guest laundry, today's projects, and follow-up remarks.
+2. `SR Total MTD` — SR vouchers and cumulative month-to-date spend.
+3. `Daily Linen Cost MTD` — daily linen cost and cumulative MTD total. Saved daily linen values are populated automatically from Room Cost data.
+4. `Bon Vivo Guest Laundry MTD` — daily guest laundry, cost per room, and cumulative MTD total.
+5. `Project Public Area` — Public Area project entries.
+6. `Daily Public Area` — daily Public Area activity entries.
+7. `Project RA` — Room Attendant credits and activities.
+8. `Room Cost MTD` — daily occupancy, room nights, SR allocation, utilities, linen, and MTD calculations.
+
+The Briefing sheet uses the selected date's room-night count to show air, electricity, and linen cost per occupied room. SR categories are allocated using the current MTD SR-per-room rate; the supporting sheets retain the monthly detail.
 
 Water, electricity, and linen laundry are divided by that day's room nights. SR spend and room nights are accumulated month-to-date; the current SR-per-room rate is total MTD SR spend divided by MTD room nights. The latest MTD rate is applied retroactively to the saved dates in that MTD period. Missing daily dates and SR vouchers outside the selected month are reported. The daily and MTD breakdown is available in the view and the exported `Room Cost Daily` worksheet.
 
