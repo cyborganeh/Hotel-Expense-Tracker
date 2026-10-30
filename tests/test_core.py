@@ -444,6 +444,44 @@ class TestDailyRoomCost:
         assert merged.iloc[0]["Occupancy"] == 92.56
         assert merged.iloc[0]["Water"] == 100000
 
+    def test_night_audit_occupancy_and_room_sold_persist_for_automatic_display(self, tmp_path):
+        audit = pd.DataFrame([{
+            "Date": "2026-10-29", "Occupancy": 97.52, "Room_Nights": 118,
+            "Water": pd.NA, "Electricity": pd.NA, "Linen_Laundry": pd.NA,
+        }])
+        merged = room_cost.merge_daily_room_costs(
+            pd.DataFrame(columns=room_cost.DAILY_COLUMNS), audit, month="2026-10"
+        )
+
+        room_cost.save_daily_room_costs("2026-10", merged, str(tmp_path))
+        reloaded = room_cost.load_daily_room_costs("2026-10", str(tmp_path))
+        yesterday = reloaded.loc[reloaded["Date"] == "2026-10-29"].iloc[0]
+
+        assert yesterday["Occupancy"] == 97.52
+        assert yesterday["Room_Nights"] == 118
+
+    def test_mtd_occupancy_and_room_sold_aggregate_saved_daily_values(self):
+        daily = pd.DataFrame([
+            {"Date": "2026-10-01", "Occupancy": 80.0, "Room_Nights": 80,
+             "Water": pd.NA, "Electricity": pd.NA, "Linen_Laundry": pd.NA},
+            {"Date": "2026-10-02", "Occupancy": 100.0, "Room_Nights": 100,
+             "Water": pd.NA, "Electricity": pd.NA, "Linen_Laundry": pd.NA},
+            {"Date": "2026-10-03", "Occupancy": pd.NA, "Room_Nights": pd.NA,
+             "Water": pd.NA, "Electricity": pd.NA, "Linen_Laundry": pd.NA},
+        ])
+
+        occupancy_mtd, room_sold_mtd = room_cost.calculate_mtd_occupancy_and_room_nights(
+            daily, "2026-10"
+        )
+        empty_occupancy, empty_room_sold = room_cost.calculate_mtd_occupancy_and_room_nights(
+            pd.DataFrame(columns=room_cost.DAILY_COLUMNS), "2026-10"
+        )
+
+        assert occupancy_mtd == 90.0
+        assert room_sold_mtd == 180
+        assert pd.isna(empty_occupancy)
+        assert empty_room_sold == 0
+
     def test_night_audit_rows_leave_combined_cost_incomplete(self):
         audit = pd.DataFrame([{
             "Date": "2026-10-01", "Occupancy": 92.56, "Room_Nights": 112,

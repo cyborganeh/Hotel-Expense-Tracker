@@ -663,6 +663,21 @@ def save_daily_room_costs(month: str, daily_df: pd.DataFrame, storage_dir: Optio
         connection.close()
 
 
+def calculate_mtd_occupancy_and_room_nights(
+    daily_df: pd.DataFrame,
+    month: str,
+) -> tuple[float, int]:
+    """Return average available occupancy and cumulative room nights for a month."""
+    daily = _normalise_daily_frame(
+        daily_df, month, allow_missing_expenses=True, allow_missing_room_nights=True
+    )
+    occupancy = pd.to_numeric(daily["Occupancy"], errors="coerce")
+    room_nights = pd.to_numeric(daily["Room_Nights"], errors="coerce")
+    occupancy_mtd = float(occupancy.mean()) if occupancy.notna().any() else float("nan")
+    room_nights_mtd = int(room_nights.sum()) if room_nights.notna().any() else 0
+    return occupancy_mtd, room_nights_mtd
+
+
 def merge_daily_room_costs(
     saved_df: pd.DataFrame,
     imported_df: pd.DataFrame,

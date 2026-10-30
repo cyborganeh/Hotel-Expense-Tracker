@@ -315,17 +315,9 @@ def render_sr_separator() -> None:
         except ValueError as exc:
             show_validation_banner([f"Room-cost calculation: {exc}"], level="error")
 
-    input_col_occupancy, input_col_rooms_sold = st.columns(2)
-    with input_col_occupancy:
-        occupancy_pct = st.number_input(
-            "Occupancy (%)", min_value=0.0, max_value=100.0, value=0.0,
-            step=0.1, format="%.1f", key=f"sr_occupancy_{period_key}"
-        )
-    with input_col_rooms_sold:
-        total_rooms_sold = st.number_input(
-            "Total Room Sold", min_value=0, value=0, step=1,
-            key=f"sr_rooms_sold_{period_key}"
-        )
+    occupancy_pct, total_rooms_sold = room_cost.calculate_mtd_occupancy_and_room_nights(
+        saved_daily_costs, selected_month
+    )
 
     # Top KPI Metrics
     tot_amt = sr_df['Total'].sum()
@@ -337,10 +329,10 @@ def render_sr_separator() -> None:
 
     st.markdown("#### Period Performance")
     ui_components.render_kpi_row([
-        {'label': 'OCCUPANCY', 'value': f"{occupancy_pct:.1f}%",
-         'delta': 'Period input', 'delta_tone': 'neutral', 'show_arrow': False},
-        {'label': 'ROOMS SOLD', 'value': f"{total_rooms_sold:,.0f}",
-         'delta': 'Period total', 'delta_tone': 'neutral', 'show_arrow': False},
+        {'label': 'OCCUPANCY MTD', 'value': f"{occupancy_pct:.1f}%" if pd.notna(occupancy_pct) else 'N/A',
+         'delta': f"Average daily occupancy • {selected_month}", 'delta_tone': 'neutral', 'show_arrow': False},
+        {'label': 'ROOM SOLD MTD', 'value': f"{total_rooms_sold:,.0f}",
+         'delta': f"Cumulative room nights • {selected_month}", 'delta_tone': 'neutral', 'show_arrow': False},
         {'label': 'SR SPEND / ROOM SOLD',
          'value': format_idr(spend_per_room_sold) if rooms_sold_valid else 'N/A',
          'delta': 'Total SR spend per room sold', 'delta_tone': 'neutral', 'show_arrow': False},
@@ -566,6 +558,9 @@ def render_sr_separator() -> None:
                 return default
             return float(selected_daily_row[column])
 
+        def _has_daily_value(column: str) -> bool:
+            return selected_daily_row is not None and pd.notna(selected_daily_row.get(column))
+
         def _editor_values(entry_type: str, columns: list[str]) -> pd.DataFrame:
             subset = manual_entries.loc[manual_entries["Entry_Type"] == entry_type, columns]
             subset = subset.reset_index(drop=True).copy()
@@ -579,14 +574,23 @@ def render_sr_separator() -> None:
             st.caption("Isi Room Cost, staff, credit RA, laundry, aktivitas area, dan follow-up untuk tanggal yang dipilih.")
             cost_col1, cost_col2, cost_col3 = st.columns(3)
             with cost_col1:
-                manual_occupancy = st.number_input(
-                    "Occupancy (%)", min_value=0.0, max_value=100.0,
-                    value=_daily_default("Occupancy"), step=0.1, format="%.2f",
-                )
-                manual_room_nights = st.number_input(
-                    "Room Sold", min_value=0, step=1,
-                    value=int(_daily_default("Room_Nights")),
-                )
+                if _has_daily_value("Occupancy"):
+                    manual_occupancy = _daily_default("Occupancy")
+                    st.metric("Occupancy (%)", f"{manual_occupancy:.2f}%")
+                    st.caption("Otomatis dari data harian / Night Audit")
+                else:
+                    manual_occupancy = st.number_input(
+                        "Occupancy (%)", min_value=0.0, max_value=100.0,
+                        value=0.0, step=0.1, format="%.2f",
+                    )
+                if _has_daily_value("Room_Nights"):
+                    manual_room_nights = int(_daily_default("Room_Nights"))
+                    st.metric("Room Sold", f"{manual_room_nights:,}")
+                    st.caption("Otomatis dari data harian / Night Audit")
+                else:
+                    manual_room_nights = st.number_input(
+                        "Room Sold", min_value=0, step=1, value=0,
+                    )
             with cost_col2:
                 manual_water = st.number_input(
                     "Air (IDR)", min_value=0.0, value=_daily_default("Water"), step=1000.0,
