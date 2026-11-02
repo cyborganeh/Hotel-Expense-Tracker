@@ -136,12 +136,12 @@ if is_dark:
     """, unsafe_allow_html=True)
 
 # Inject shared metric-card and UI CSS from ui_components
-st.markdown(ui_components.get_metric_card_css(), unsafe_allow_html=True)
+st.markdown(f"<style>{ui_components.get_metric_card_css()}</style>", unsafe_allow_html=True)
 
 # Streamlit's base theme is fixed in .streamlit/config.toml, so light mode
 # needs explicit overrides to keep native widgets legible.
 if not is_dark:
-    st.markdown(ui_components.get_light_mode_css(), unsafe_allow_html=True)
+    st.markdown(f"<style>{ui_components.get_light_mode_css()}</style>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Data directory setup

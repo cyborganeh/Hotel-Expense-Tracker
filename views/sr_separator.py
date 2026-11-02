@@ -21,6 +21,74 @@ def _format_room_cost_value(value) -> str:
     return "Belum lengkap" if pd.isna(value) else format_idr(value)
 
 
+def _render_room_cost_uploader(
+    *,
+    section: str,
+    prefix: str,
+    uploader_label: str,
+    help_text: str,
+    parser_fn,
+    duplicate_warning: str,
+    replace_checkbox_label: str,
+    save_button_label: str,
+    success_msg_fn,
+    caption_fn: str,
+    error_prefix: str,
+    empty_caption: str,
+    saved_daily_costs: pd.DataFrame,
+    selected_month: str,
+) -> None:
+    """Render one of the four sidebar uploaders (daily cost / night audit / energy / linen).
+
+    All four share the same flow: validate size → parse → detect duplicate dates →
+    confirm replacement → save via merge_daily_room_costs → caption. Only the
+    parser, labels, and message formatters differ.
+    """
+    st.sidebar.markdown(f"### {section}")
+    upload_key = f"{prefix}_upload_{selected_month}"
+    uploaded = st.sidebar.file_uploader(
+        uploader_label, type=["xlsx"], key=upload_key, help=help_text,
+    )
+    if uploaded is None:
+        st.sidebar.caption(empty_caption)
+        return
+
+    try:
+        validate_upload_size(uploaded)
+        rows = parser_fn(uploaded, selected_month)
+    except Exception as exc:
+        show_validation_banner([f"{error_prefix}: {exc}"], level="error")
+        return
+
+    duplicate_dates = sorted(set(saved_daily_costs["Date"]) & set(rows["Date"]))
+    if duplicate_dates:
+        st.sidebar.warning(duplicate_warning + ": " + ", ".join(duplicate_dates))
+        replace_confirmed = st.sidebar.checkbox(
+            replace_checkbox_label,
+            key=f"{prefix}_replace_confirm_{selected_month}",
+        )
+    else:
+        replace_confirmed = True
+
+    if st.sidebar.button(
+        save_button_label,
+        key=f"{prefix}_save_{selected_month}",
+        disabled=bool(duplicate_dates) and not replace_confirmed,
+        type="primary",
+    ):
+        try:
+            merged = room_cost.merge_daily_room_costs(
+                saved_daily_costs, rows,
+                replace_dates=replace_confirmed, month=selected_month,
+            )
+            room_cost.save_daily_room_costs(selected_month, merged)
+            st.sidebar.success(success_msg_fn(rows))
+            st.rerun()
+        except Exception as exc:
+            show_validation_banner([f"{error_prefix}: {exc}"], level="error")
+    st.sidebar.caption(caption_fn(rows))
+
+
 def render_sr_separator() -> None:
     """
     Warehouse Stock Request (SR) Separator UI.
@@ -131,176 +199,73 @@ def render_sr_separator() -> None:
         saved_daily_costs = pd.DataFrame(columns=room_cost.DAILY_COLUMNS)
         show_validation_banner([str(exc)], level="error")
 
-    st.sidebar.markdown("### Daily Room Cost Excel")
-    uploaded_cost_excel = st.sidebar.file_uploader(
-        "Upload daily costs (.xlsx)",
-        type=["xlsx"],
-        key=f"room_cost_upload_{selected_month}",
-        help="Required columns: Date, Room Nights, Water, Electricity, and Linen Laundry.",
+    _render_room_cost_uploader(
+        section="Daily Room Cost Excel",
+        prefix="room_cost",
+        uploader_label="Upload daily costs (.xlsx)",
+        help_text="Required columns: Date, Room Nights, Water, Electricity, and Linen Laundry.",
+        parser_fn=room_cost.parse_daily_room_cost_excel,
+        duplicate_warning="Data exists for",
+        replace_checkbox_label="Confirm replacement for these dates",
+        save_button_label="Save Daily Costs",
+        success_msg_fn=lambda r: f"Saved {len(r)} daily row(s).",
+        caption_fn=lambda r: f"Validated {len(r)} row(s) for {selected_month}.",
+        error_prefix="Daily room-cost Excel",
+        empty_caption=f"{len(saved_daily_costs)} saved daily row(s) for {selected_month}.",
+        saved_daily_costs=saved_daily_costs,
+        selected_month=selected_month,
     )
-    if uploaded_cost_excel is not None:
-        try:
-            validate_upload_size(uploaded_cost_excel)
-            imported_daily_costs = room_cost.parse_daily_room_cost_excel(uploaded_cost_excel, selected_month)
-            duplicate_dates = sorted(set(saved_daily_costs["Date"]) & set(imported_daily_costs["Date"]))
-            if duplicate_dates:
-                st.sidebar.warning("Data exists for: " + ", ".join(duplicate_dates))
-                replace_confirmed = st.sidebar.checkbox(
-                    "Confirm replacement for these dates",
-                    key=f"room_cost_replace_confirm_{selected_month}",
-                )
-            else:
-                replace_confirmed = True
 
-            if st.sidebar.button(
-                "Save Daily Costs",
-                key=f"room_cost_save_{selected_month}",
-                disabled=bool(duplicate_dates) and not replace_confirmed,
-                type="primary",
-            ):
-                try:
-                    merged_daily_costs = room_cost.merge_daily_room_costs(
-                        saved_daily_costs,
-                        imported_daily_costs,
-                        replace_dates=replace_confirmed,
-                        month=selected_month,
-                    )
-                    room_cost.save_daily_room_costs(selected_month, merged_daily_costs)
-                    st.sidebar.success(f"Saved {len(imported_daily_costs)} daily row(s).")
-                    st.rerun()
-                except Exception as exc:
-                    show_validation_banner([f"Could not save daily room-cost data: {exc}"], level="error")
-            st.sidebar.caption(f"Validated {len(imported_daily_costs)} row(s) for {selected_month}.")
-        except Exception as exc:
-            show_validation_banner([f"Daily room-cost Excel: {exc}"], level="error")
-    else:
-        st.sidebar.caption(f"{len(saved_daily_costs)} saved daily row(s) for {selected_month}.")
-
-    st.sidebar.markdown("### Night Audit Occupancy & Room Sold")
-    uploaded_night_audit = st.sidebar.file_uploader(
-        "Upload Night Audit Report (.xlsx)",
-        type=["xlsx"],
-        key=f"night_audit_upload_{selected_month}",
-        help="Extracts occupancy and room sold by date. Existing cost values are preserved.",
+    _render_room_cost_uploader(
+        section="Night Audit Occupancy & Room Sold",
+        prefix="night_audit",
+        uploader_label="Upload Night Audit Report (.xlsx)",
+        help_text="Extracts occupancy and room sold by date. Existing cost values are preserved.",
+        parser_fn=room_cost.parse_night_audit_report,
+        duplicate_warning="Room-night data exists for",
+        replace_checkbox_label="Confirm Night Audit replacement",
+        save_button_label="Save Occupancy & Room Sold",
+        success_msg_fn=lambda r: f"Saved {len(r)} dates; room sold total {r['Room_Nights'].sum():,.0f}.",
+        caption_fn=lambda r: f"Detected {len(r)} dates and {r['Room_Nights'].sum():,.0f} room sold.",
+        error_prefix="Night Audit report",
+        empty_caption="",
+        saved_daily_costs=saved_daily_costs,
+        selected_month=selected_month,
     )
-    if uploaded_night_audit is not None:
-        try:
-            validate_upload_size(uploaded_night_audit)
-            audit_rows = room_cost.parse_night_audit_report(uploaded_night_audit, selected_month)
-            duplicate_audit_dates = sorted(set(saved_daily_costs["Date"]) & set(audit_rows["Date"]))
-            if duplicate_audit_dates:
-                st.sidebar.warning("Room-night data exists for: " + ", ".join(duplicate_audit_dates))
-                replace_audit_confirmed = st.sidebar.checkbox(
-                    "Confirm Night Audit replacement",
-                    key=f"night_audit_replace_confirm_{selected_month}",
-                )
-            else:
-                replace_audit_confirmed = True
 
-            if st.sidebar.button(
-                "Save Occupancy & Room Sold",
-                key=f"night_audit_save_{selected_month}",
-                disabled=bool(duplicate_audit_dates) and not replace_audit_confirmed,
-                type="primary",
-            ):
-                merged_audit_rows = room_cost.merge_daily_room_costs(
-                    saved_daily_costs,
-                    audit_rows,
-                    replace_dates=replace_audit_confirmed,
-                    month=selected_month,
-                )
-                room_cost.save_daily_room_costs(selected_month, merged_audit_rows)
-                st.sidebar.success(
-                    f"Saved {len(audit_rows)} dates; room sold total {audit_rows['Room_Nights'].sum():,.0f}."
-                )
-                st.rerun()
-            st.sidebar.caption(
-                f"Detected {len(audit_rows)} dates and {audit_rows['Room_Nights'].sum():,.0f} room sold."
-            )
-        except Exception as exc:
-            show_validation_banner([f"Night Audit report: {exc}"], level="error")
-
-    st.sidebar.markdown("### Energy Cost")
-    uploaded_energy_cost = st.sidebar.file_uploader(
-        "Upload Energy Cost workbook (.xlsx)",
-        type=["xlsx"],
-        key=f"energy_cost_upload_{selected_month}",
-        help="Extracts daily electricity and water amounts; existing room sold and linen data are preserved.",
+    _render_room_cost_uploader(
+        section="Energy Cost",
+        prefix="energy_cost",
+        uploader_label="Upload Energy Cost workbook (.xlsx)",
+        help_text="Extracts daily electricity and water amounts; existing room sold and linen data are preserved.",
+        parser_fn=room_cost.parse_energy_cost_workbook,
+        duplicate_warning="Energy data exists for",
+        replace_checkbox_label="Confirm energy value replacement",
+        save_button_label="Save Energy Costs",
+        success_msg_fn=lambda r: f"Saved electricity Rp {r['Electricity'].sum():,.0f} and water Rp {r['Water'].sum():,.0f}.",
+        caption_fn=lambda r: f"Detected energy data for {len(r)} date(s).",
+        error_prefix="Energy Cost workbook",
+        empty_caption="",
+        saved_daily_costs=saved_daily_costs,
+        selected_month=selected_month,
     )
-    if uploaded_energy_cost is not None:
-        try:
-            validate_upload_size(uploaded_energy_cost)
-            energy_rows = room_cost.parse_energy_cost_workbook(uploaded_energy_cost, selected_month)
-            duplicate_energy_dates = sorted(set(saved_daily_costs["Date"]) & set(energy_rows["Date"]))
-            if duplicate_energy_dates:
-                st.sidebar.warning("Energy data exists for: " + ", ".join(duplicate_energy_dates))
-                replace_energy_confirmed = st.sidebar.checkbox(
-                    "Confirm energy value replacement",
-                    key=f"energy_cost_replace_confirm_{selected_month}",
-                )
-            else:
-                replace_energy_confirmed = True
 
-            if st.sidebar.button(
-                "Save Energy Costs",
-                key=f"energy_cost_save_{selected_month}",
-                disabled=bool(duplicate_energy_dates) and not replace_energy_confirmed,
-                type="primary",
-            ):
-                merged_energy_rows = room_cost.merge_daily_room_costs(
-                    saved_daily_costs,
-                    energy_rows,
-                    replace_dates=replace_energy_confirmed,
-                    month=selected_month,
-                )
-                room_cost.save_daily_room_costs(selected_month, merged_energy_rows)
-                st.sidebar.success(
-                    f"Saved electricity Rp {energy_rows['Electricity'].sum():,.0f} and water Rp {energy_rows['Water'].sum():,.0f}."
-                )
-                st.rerun()
-            st.sidebar.caption(f"Detected energy data for {len(energy_rows)} date(s).")
-        except Exception as exc:
-            show_validation_banner([f"Energy Cost workbook: {exc}"], level="error")
-
-    st.sidebar.markdown("### Daily Linen Cost")
-    uploaded_linen_cost = st.sidebar.file_uploader(
-        "Upload Daily Linen Cost workbook (.xlsx)",
-        type=["xlsx"],
-        key=f"linen_cost_upload_{selected_month}",
-        help="Reads TOTAL BIAYA HARIAN by date and preserves saved room, water, and electricity data.",
+    _render_room_cost_uploader(
+        section="Daily Linen Cost",
+        prefix="linen_cost",
+        uploader_label="Upload Daily Linen Cost workbook (.xlsx)",
+        help_text="Reads TOTAL BIAYA HARIAN by date and preserves saved room, water, and electricity data.",
+        parser_fn=room_cost.parse_daily_linen_cost_workbook,
+        duplicate_warning="Linen data exists for",
+        replace_checkbox_label="Confirm linen value replacement",
+        save_button_label="Save Linen Costs",
+        success_msg_fn=lambda r: f"Saved linen total Rp {r['Linen_Laundry'].sum():,.0f}.",
+        caption_fn=lambda r: f"Detected linen costs for {len(r)} date(s).",
+        error_prefix="Daily Linen Cost workbook",
+        empty_caption="",
+        saved_daily_costs=saved_daily_costs,
+        selected_month=selected_month,
     )
-    if uploaded_linen_cost is not None:
-        try:
-            validate_upload_size(uploaded_linen_cost)
-            linen_rows = room_cost.parse_daily_linen_cost_workbook(uploaded_linen_cost, selected_month)
-            duplicate_linen_dates = sorted(set(saved_daily_costs["Date"]) & set(linen_rows["Date"]))
-            if duplicate_linen_dates:
-                st.sidebar.warning("Linen data exists for: " + ", ".join(duplicate_linen_dates))
-                replace_linen_confirmed = st.sidebar.checkbox(
-                    "Confirm linen value replacement",
-                    key=f"linen_cost_replace_confirm_{selected_month}",
-                )
-            else:
-                replace_linen_confirmed = True
-
-            if st.sidebar.button(
-                "Save Linen Costs",
-                key=f"linen_cost_save_{selected_month}",
-                disabled=bool(duplicate_linen_dates) and not replace_linen_confirmed,
-                type="primary",
-            ):
-                merged_linen_rows = room_cost.merge_daily_room_costs(
-                    saved_daily_costs,
-                    linen_rows,
-                    replace_dates=replace_linen_confirmed,
-                    month=selected_month,
-                )
-                room_cost.save_daily_room_costs(selected_month, merged_linen_rows)
-                st.sidebar.success(f"Saved linen total Rp {linen_rows['Linen_Laundry'].sum():,.0f}.")
-                st.rerun()
-            st.sidebar.caption(f"Detected linen costs for {len(linen_rows)} date(s).")
-        except Exception as exc:
-            show_validation_banner([f"Daily Linen Cost workbook: {exc}"], level="error")
 
     room_cost_daily_df = pd.DataFrame()
     room_cost_monthly_df = pd.DataFrame()
@@ -360,7 +325,24 @@ def render_sr_separator() -> None:
     st.sidebar.download_button(
         label="Download Morning Briefing Template (.xlsx)",
         data=exporter.create_morning_briefing_template(
-            selected_month, sr_data=sr_df, daily_cost_data=saved_daily_costs
+            selected_month,
+            sr_data=sr_df,
+            daily_cost_data=saved_daily_costs,
+            manual_data_by_date={
+                report_date.isoformat(): room_cost.load_manual_briefing_data(report_date)
+                for report_date in {
+                    (
+                        pd.Timestamp.today().date() - pd.Timedelta(days=1)
+                        if selected_month == pd.Timestamp.today().strftime("%Y-%m")
+                        else pd.Period(selected_month).end_time.date()
+                    ),
+                    (
+                        pd.Timestamp.today().date() - pd.Timedelta(days=1)
+                        if selected_month == pd.Timestamp.today().strftime("%Y-%m")
+                        else pd.Period(selected_month).end_time.date()
+                    ) + pd.Timedelta(days=1),
+                }
+            },
         ),
         file_name=f"Morning_Briefing_{selected_month}_with_data.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -603,7 +585,7 @@ def render_sr_separator() -> None:
                     "Linen (IDR)", min_value=0.0, value=_daily_default("Linen_Laundry"), step=1000.0,
                 )
                 manual_laundry_cost = st.number_input(
-                    "Bon Vivo Guest Laundry (IDR)", min_value=0.0,
+                    "Drop N Go Laundry (IDR)", min_value=0.0,
                     value=float(manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry", "Total"].iloc[-1])
                     if not manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry"].empty
                     and pd.notna(manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry", "Total"].iloc[-1]) else 0.0,

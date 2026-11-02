@@ -33,10 +33,13 @@ def main():
         "pymupdf",
     ]
 
-    for source in ("app.py", "parser.py", "matcher.py", "exporter.py", "sr_parser.py", "ui_components.py"):
+    for source in (
+        "app.py", "parser.py", "matcher.py", "exporter.py", "briefing_template.py",
+        "sr_parser.py", "ui_components.py",
+    ):
         cmd.extend(["--add-data", f"{source};."])
 
-    for directory in ("data", "ui", "views"):
+    for directory in ("data", "ui", "views", "templates"):
         cmd.extend(["--add-data", f"{directory};{directory}"])
 
     cmd.extend([

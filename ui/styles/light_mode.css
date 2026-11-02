@@ -1,0 +1,79 @@
+/* Light-mode overrides for Streamlit native widgets — mirror of ui_components.get_light_mode_css() */
+
+[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] label,
+[data-testid="stRadioOption"] p,
+[data-testid="stRadioOption"] span,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] span,
+[data-testid="stMarkdownContainer"],
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] code {
+    color: var(--text-main) !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] li {
+    color: var(--text-main) !important;
+}
+
+[data-testid="stTextInputRootElement"],
+[data-testid="stNumberInputContainer"],
+[data-testid="stMultiSelect"] [role="group"],
+[data-testid="stSelectbox"] [role="group"],
+[data-testid="stFileUploaderDropzone"],
+[data-testid="stFileUploader"] section,
+[data-testid="stExpander"] details {
+    background-color: var(--bg-card) !important;
+    border-color: var(--border-subtle) !important;
+    color: var(--text-main) !important;
+}
+[data-testid="stTextInputField"],
+[data-testid="stNumberInputField"],
+[data-testid="stTextArea"] textarea,
+[data-testid="stSelectbox"] input,
+[data-testid="stMultiSelect"] input,
+[data-testid="stFileUploaderDropzone"] * {
+    color: var(--text-main) !important;
+}
+
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-elementToolbar"],
+[data-testid="stBaseButton-headerNoPadding"] {
+    background-color: var(--bg-card) !important;
+    border-color: var(--border-subtle) !important;
+    color: var(--text-main) !important;
+}
+[data-testid="stBaseButton-headerNoPadding"],
+[data-testid="stBaseButton-elementToolbar"] {
+    background-color: transparent !important;
+}
+[data-testid="stBaseButton-primary"] {
+    background-color: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: var(--text-on-accent) !important;
+}
+[data-testid="stBaseButton-secondary"] p,
+[data-testid="stBaseButton-primary"] p { color: inherit !important; }
+
+[data-testid="stAlertContainer"] {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-main) !important;
+}
+[data-testid="stAlertContentWarning"] { color: #92400E !important; }
+[data-testid="stAlertContentError"] { color: #B91C1C !important; }
+[data-testid="stAlertContentInfo"] { color: #1D4ED8 !important; }
+
+[data-testid="stDataFrame"] *, [data-testid="stTable"] * {
+    color: var(--text-main);
+}
+
+[data-baseweb="popover"] > div,
+[data-baseweb="popover"] ul,
+[role="listbox"] {
+    background-color: var(--bg-card) !important;
+    color: var(--text-main) !important;
+}

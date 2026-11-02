@@ -3,7 +3,10 @@ import os
 import sys
 import tempfile
 import json
+from datetime import datetime, timedelta
 from io import BytesIO
+from zipfile import ZipFile
+from xml.etree import ElementTree
 import pytest
 import pandas as pd
 import openpyxl
@@ -637,59 +640,148 @@ class TestDailyRoomCost:
         assert sheet.cell(10, headers["SR Cost / Room (IDR)"]).value == 62500
         assert sheet.cell(10, headers["Total Room Cost (IDR)"]).value == 5600000
 
-    def test_morning_briefing_template_has_eight_sheets_and_daily_formulas(self):
+    def test_morning_briefing_template_matches_shared_compact_layout(self):
+        briefing_date = (datetime.now() - timedelta(days=1)).date()
+        briefing_date_text = briefing_date.isoformat()
+        operation_date_text = (briefing_date + timedelta(days=1)).isoformat()
+        manual_data = {
+            briefing_date_text: {
+                "Entries": pd.DataFrame([{
+                    "Entry_Type": "ra", "Staff_Name": "Rina", "Section": "Floor 5",
+                    "Room_Credit": 18, "Description": "Room credit", "Notes": "Complete",
+                }]),
+            },
+            operation_date_text: {
+                "Staff_Incharge": "Dewi",
+                "Remarks": "Check corridor lighting",
+                "Entries": pd.DataFrame([
+                    {
+                        "Entry_Type": "ra", "Staff_Name": "Rina", "Section": "Floor 5",
+                        "Room_Credit": 18, "Description": "Lamp inspection", "Notes": "Open",
+                    },
+                    {
+                        "Entry_Type": "project_pa", "Area": "Lobby", "Description": "Polish floor",
+                        "PIC": "Ari", "Notes": "Morning shift",
+                    },
+                    {
+                        "Entry_Type": "daily_pa", "Area": "Pool", "Description": "Clean deck",
+                        "PIC": "Budi", "Notes": "",
+                    },
+                    {
+                        "Entry_Type": "guest_laundry", "Description": "Must not be exported",
+                        "Total": 12345,
+                    },
+                ]),
+            },
+        }
+        exported = create_morning_briefing_template(
+            briefing_date.strftime("%Y-%m"),
+            sr_data=pd.DataFrame([{
+                "Date": briefing_date_text, "SR_Number": "SR-001",
+                "Category": "Guest Supplies", "Total": 90000,
+            }]),
+            daily_cost_data=pd.DataFrame([{
+                "Date": briefing_date_text, "Occupancy": 90.0, "Room_Nights": 90,
+                "Water": 9000, "Electricity": 18000, "Linen_Laundry": 4500,
+            }]),
+            manual_data_by_date=manual_data,
+        )
         workbook = openpyxl.load_workbook(
-            BytesIO(create_morning_briefing_template(
-                "2026-10",
-                sr_data=pd.DataFrame([{
-                    "Date": "2026-10-01", "SR_Number": "SR-001",
-                    "Category": "Guest Supplies", "Total": 90000,
-                }]),
-                daily_cost_data=pd.DataFrame([{
-                    "Date": "2026-10-01", "Occupancy": 90.0, "Room_Nights": 90,
-                    "Water": 9000, "Electricity": 18000, "Linen_Laundry": 4500,
-                }]),
-            )), data_only=False
+            BytesIO(exported), data_only=False
         )
 
         assert workbook.sheetnames == [
-            "Briefing", "SR Total MTD", "Daily Linen Cost MTD",
-            "Bon Vivo Guest Laundry MTD", "Project Public Area",
-            "Daily Public Area", "Project RA", "Room Cost MTD",
+            "Briefing", "SR Total MTD", "Daily Linen Cost MTD", "Guest Laundry MTD",
+            "Public Area Project", "Project RA", "Room Cost MTD",
         ]
         briefing = workbook["Briefing"]
-        room_cost = workbook["Room Cost MTD"]
-        assert briefing.max_column == 10
-        assert briefing["A4"].value == "Tanggal Briefing"
-        assert briefing["B4"].value.date().isoformat() == "2026-10-29"
-        assert briefing["A5"].value == "Tanggal Operasional (hari ini)"
+        assert briefing["A2"].value == (
+            f"Daily operational summary | {briefing_date.strftime('%Y-%m')} | "
+            "MTD details are in the supporting sheets"
+        )
+        assert briefing["B4"].value.date() == briefing_date
         assert briefing["B5"].value == "=B4+1"
-        assert "INDEX('Room Cost MTD'!$B$5:$B$35" in briefing["B7"].value
-        assert "ROWS(UNIQUE(FILTER('Project RA'!" in briefing["B9"].value
-        assert "TAKE(FILTER('Project RA'!" in briefing["A14"].value
-        assert "=$B$4" in briefing["A14"].value
-        assert briefing["A42"].value == "TOTAL ROOM COST / KAMAR"
-        assert "INDEX('Room Cost MTD'!$D$5:$D$35" in briefing["B38"].value
-        assert "/INDEX('Room Cost MTD'!$C$5:$C$35" in briefing["B38"].value
-        assert briefing["B42"].value == '=IF(COUNT(B38:B41)<4,"",SUM(B38:B41))'
-        assert "'Room Cost MTD'!$H$5:$H$35" not in briefing["B42"].value
-        assert "Bon Vivo Guest Laundry MTD" in briefing["A47"].value
-        assert "TAKE(FILTER('Project Public Area'!" in briefing["A71"].value
-        assert "=$B$5" in briefing["A71"].value
-        assert "TAKE(FILTER('Daily Public Area'!" in briefing["A90"].value
-        assert "=$B$5" in briefing["A90"].value
-        assert briefing["A108"].value is None
-        assert "SUM('SR Total MTD'!" in room_cost["D5"].value
+        assert briefing["A6"].value == "OCCUPANCY & STAFF"
+        assert briefing["A7"].value == "Occupancy Semalam (%)"
+        assert "Room Cost MTD" in briefing["B7"].value
+        assert briefing["A8"].value == "Room Sold"
+        assert "Project RA" in briefing["B9"].value
+        assert briefing["B10"].value == "Dewi"
+        assert briefing["A12"].value == "ROOM COST | DETAIL HARI KEMARIN"
+        assert briefing["A21"].value == "DROP N GO LAUNDRY | HARI KEMARIN"
+        assert briefing["A26"].value == "PROJECT RA | HARI INI"
+        assert briefing["A35"].value == "PROJECT PUBLIC AREA | HARI INI"
+        assert briefing["A46"].value == "REMARK / FOLLOW UP"
+        assert "A47:E49" in {str(cell_range) for cell_range in briefing.merged_cells.ranges}
+        assert briefing.print_area == "'Briefing'!$A$1:$E$49"
+        assert briefing["A37"].value == "Lobby"
+        assert briefing["B37"].value == "Polish floor"
+        assert briefing["A47"].value == "Check corridor lighting"
+        assert workbook["Project RA"]["B5"].value == "Rina"
+        assert workbook["Project RA"]["E6"].value == "Lamp inspection"
+        assert "Daily Public Area" not in workbook.sheetnames
+        assert "Project Public Area" not in workbook.sheetnames
+        workbook_text = " ".join(
+            str(cell.value)
+            for sheet in workbook.worksheets
+            for row in sheet.iter_rows()
+            for cell in row
+            if cell.value is not None
+        ).lower()
+        assert "bon vivo" not in workbook_text
+        assert "daily pa" not in workbook_text
+        assert workbook["Public Area Project"]["C4"].value == "Brushing area loading dock & cleaning gutter"
+        assert workbook["Public Area Project"]["D4"].value is None
+        with ZipFile(BytesIO(exported)) as archive:
+            namespace = {
+                "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+                "office": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+                "package": "http://schemas.openxmlformats.org/package/2006/relationships",
+            }
+            workbook_xml = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+            relationships_xml = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+            targets = {
+                relation.attrib["Id"]: relation.attrib["Target"]
+                for relation in relationships_xml.findall("package:Relationship", namespace)
+            }
+            sheet_paths = {
+                sheet.attrib["name"]: targets[sheet.attrib[f"{{{namespace['office']}}}id"]].lstrip("/")
+                for sheet in workbook_xml.findall("main:sheets/main:sheet", namespace)
+            }
+            checklist_xml = archive.read(sheet_paths["Public Area Project"])
+            ra_xml = archive.read(sheet_paths["Project RA"])
+        assert b"x14:conditionalFormattings" in checklist_xml
+        assert b"x14:conditionalFormattings" not in ra_xml
+        room_cost = workbook["Room Cost MTD"]
+        daily_row = 4 + briefing_date.day
+        assert room_cost.cell(daily_row, 2).value == 0.9
+        assert room_cost.cell(daily_row, 3).value == 90
+        assert room_cost.cell(daily_row, 5).value == 9000
+        assert room_cost.cell(daily_row, 6).value == 18000
+        assert room_cost.cell(daily_row, 7).value == 4500
+        assert workbook["Daily Linen Cost MTD"].cell(daily_row, 2).value == 4500
+        operation_row = 4 + (briefing_date + timedelta(days=1)).day
+        assert workbook["Guest Laundry MTD"].cell(operation_row, 3).value == 12345
         assert workbook["SR Total MTD"]["B5"].value == "SR-001"
         assert workbook["SR Total MTD"]["D5"].value == 90000
-        linen = workbook["Daily Linen Cost MTD"]
-        assert linen["B5"].value == 4500
-        assert linen["C5"].value == "=SUM($B$5:B5)"
-        assert room_cost["B5"].value == 0.9
-        assert room_cost["C5"].value == 90
-        assert room_cost["H5"].value == '=IF(COUNTA(C5,E5:G5)=0,"",SUM(D5:G5))'
-        assert room_cost["A35"].value.date().isoformat() == "2026-10-31"
-        assert room_cost["A36"].value is None
+
+    def test_morning_briefing_template_uses_selected_month_day_rows(self):
+        exported = create_morning_briefing_template(
+            "2026-10",
+            daily_cost_data=pd.DataFrame([{
+                "Date": "2026-10-31", "Occupancy": 74.0, "Room_Nights": 81,
+                "Water": 1000, "Electricity": 2000, "Linen_Laundry": 3000,
+            }]),
+        )
+        workbook = openpyxl.load_workbook(BytesIO(exported), data_only=False)
+
+        assert workbook["Briefing"]["B4"].value.date().isoformat() == "2026-10-31"
+        assert "$35" in workbook["Briefing"]["B7"].value
+        assert workbook["Room Cost MTD"]["A35"].value.date().isoformat() == "2026-10-31"
+        assert workbook["Room Cost MTD"]["B35"].value == 0.74
+        assert workbook["Room Cost MTD"]["C35"].value == 81
+        assert workbook["Daily Linen Cost MTD"]["A35"].value.date().isoformat() == "2026-10-31"
+        assert workbook["Daily Linen Cost MTD"]["B35"].value == 3000
 
 
 class TestNormalizeSRLabels:

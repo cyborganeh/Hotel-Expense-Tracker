@@ -42,20 +42,19 @@ Use **Energy Cost** to import daily electricity and water from a workbook with `
 
 Use **Daily Linen Cost** to import the `Tanggal` and `TOTAL BIAYA HARIAN` values from a linen workbook. The cumulative column is not added into the daily costs. If the workbook provides `Jumlah hari yang ada data`, zero-filled future dates after that count are ignored.
 
-In **Daily Room Cost**, use **Input Manual Harian** to enter or update a date without uploading a workbook. The form saves occupancy, room sold, water, electricity, linen, staff incharge, RA room credits, Bon Vivo guest laundry, Public Area activities, and follow-up remarks to the local SQLite database. Existing values for the selected date are loaded for editing; saving replaces that date's manual entries and leaves other dates untouched.
+In **Daily Room Cost**, use **Input Manual Harian** to enter or update a date without uploading a workbook. The form saves occupancy, room sold, water, electricity, linen, staff incharge, RA room credits, Drop N Go laundry, Public Area activities, and follow-up remarks to the local SQLite database. Existing values for the selected date are loaded for editing; saving replaces that date's manual entries and leaves other dates untouched.
 
-Use **Download Morning Briefing Template (.xlsx)** to export an eight-sheet workbook:
+Use **Download Morning Briefing Template (.xlsx)** to export the user's seven-sheet housekeeping workbook. Its layout and existing fields are retained; saved data is filled only where the application has a matching field:
 
-1. `Briefing` — one-day operational summary for the selected reporting date (defaults to yesterday), including occupancy, room sold, RA credit, room-cost components per occupied room, guest laundry, today's projects, and follow-up remarks.
+1. `Briefing` — daily occupancy, room sold, Room Attendant credits, room cost per occupied room, Drop N Go daily totals, Public Area project entries, and follow-up notes.
 2. `SR Total MTD` — SR vouchers and cumulative month-to-date spend.
-3. `Daily Linen Cost MTD` — daily linen cost and cumulative MTD total. Saved daily linen values are populated automatically from Room Cost data.
-4. `Bon Vivo Guest Laundry MTD` — daily guest laundry, cost per room, and cumulative MTD total.
-5. `Project Public Area` — Public Area project entries.
-6. `Daily Public Area` — daily Public Area activity entries.
-7. `Project RA` — Room Attendant credits and activities.
-8. `Room Cost MTD` — daily occupancy, room nights, SR allocation, utilities, linen, and MTD calculations.
+3. `Daily Linen Cost MTD` — daily linen and cumulative month-to-date cost.
+4. `Guest Laundry MTD` — Drop N Go room nights, daily cost, cost per room, and cumulative total.
+5. `Public Area Project` — the template's monthly Public Area task checklist.
+6. `Project RA` — saved Room Attendant project and activity entries.
+7. `Room Cost MTD` — daily occupancy, room nights, SR allocation, utilities, and linen.
 
-The Briefing sheet uses the selected date's room-night count to show air, electricity, and linen cost per occupied room. SR categories are allocated using the current MTD SR-per-room rate; the supporting sheets retain the monthly detail.
+The briefing date defaults to yesterday in the selected month, or the month's last day when exporting a different month. Manual Room Attendant, incharge, follow-up, Drop N Go, and Public Area project data is filled for the corresponding date. The removed duplicate `Daily Public Area` tab and its Briefing section are not added back.
 
 Water, electricity, and linen laundry are divided by that day's room nights. SR spend and room nights are accumulated month-to-date; the current SR-per-room rate is total MTD SR spend divided by MTD room nights. The latest MTD rate is applied retroactively to the saved dates in that MTD period. Missing daily dates and SR vouchers outside the selected month are reported. The daily and MTD breakdown is available in the view and the exported `Room Cost Daily` worksheet.
 
