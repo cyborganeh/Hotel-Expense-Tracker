@@ -40,7 +40,7 @@ Use **Night Audit Occupancy & Room Sold** in the SR Separator to import a Night 
 
 Use **Energy Cost** to import daily electricity and water from a workbook with `Tanggal`, `Penggunaan Listrik`, and `Penggunaan Air` columns. Day numbers such as `1` through `31` are interpreted in the selected month. When a date has no room-sold record yet, its imported utility values are saved while room nights remain blank; they are not treated as zero.
 
-Use **Daily Linen Cost** to import the `Tanggal` and `TOTAL BIAYA HARIAN` values from a linen workbook. The cumulative column is not added into the daily costs. If the workbook provides `Jumlah hari yang ada data`, zero-filled future dates after that count are ignored.
+Use **Laundry Reports** to upload both the Bonvivo and Drop N Go monthly workbooks together. Daily room-linen cost combines the `LINEN HK` detail from both reports, including Bonvivo regular, Spotting/OOO, and prewash charges; Linen FBS and invoice VAT are excluded. Drop N Go guest laundry is calculated separately from item quantities, prices, dates, and room columns, then saved as daily room count and cost. Replacing dates requires confirmation and leaves other manual briefing entries untouched.
 
 In **Daily Room Cost**, use **Input Manual Harian** to enter or update a date without uploading a workbook. The form saves occupancy, room sold, water, electricity, linen, staff incharge, RA room credits, Drop N Go laundry, Public Area activities, and follow-up remarks to the local SQLite database. Existing values for the selected date are loaded for editing; saving replaces that date's manual entries and leaves other dates untouched.
 
@@ -49,7 +49,7 @@ Use **Download Morning Briefing Template (.xlsx)** to export the user's seven-sh
 1. `Briefing` — daily occupancy, room sold, Room Attendant credits, room cost per occupied room, Drop N Go daily totals, Public Area project entries, and follow-up notes.
 2. `SR Total MTD` — SR vouchers and cumulative month-to-date spend.
 3. `Daily Linen Cost MTD` — daily linen and cumulative month-to-date cost.
-4. `Guest Laundry MTD` — Drop N Go room nights, daily cost, cost per room, and cumulative total.
+4. `Guest Laundry MTD` — Drop N Go room count, daily cost, cost per room, and cumulative total.
 5. `Public Area Project` — the template's monthly Public Area task checklist.
 6. `Project RA` — saved Room Attendant project and activity entries.
 7. `Room Cost MTD` — daily occupancy, room nights, SR allocation, utilities, and linen.

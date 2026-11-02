@@ -97,6 +97,7 @@ def create_morning_briefing_template(
     sr_data: pd.DataFrame | None = None,
     daily_cost_data: pd.DataFrame | None = None,
     manual_data_by_date: dict | None = None,
+    guest_laundry_data: pd.DataFrame | None = None,
 ) -> bytes:
     """Fill the user's workbook without adding or rearranging workbook content."""
     try:
@@ -136,14 +137,19 @@ def create_morning_briefing_template(
     briefing["B4"] = briefing_date
     briefing["B4"].number_format = "dd mmm yyyy"
     last_room_cost_row = 4 + days_in_month
-    briefing["B6"] = f'=IFERROR(INDEX(\'Room Cost MTD\'!$B$5:$B${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0)),"")'
-    briefing["B7"] = f'=IFERROR(INDEX(\'Room Cost MTD\'!$C$5:$C${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0)),"")'
+    briefing["B6"] = None
+    briefing["B7"] = f'=IFERROR(INDEX(\'Room Cost MTD\'!$B$5:$B${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0)),"")'
+    briefing["B7"].number_format = "0.00%"
+    briefing["B8"] = f'=IFERROR(INDEX(\'Room Cost MTD\'!$C$5:$C${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0)),"")'
+    briefing["B8"].number_format = "#,##0"
     briefing["B9"] = f'=IFERROR(ROWS(UNIQUE(FILTER(\'Project RA\'!$B$5:$B${workbook["Project RA"].max_row},(\'Project RA\'!$A$5:$A${workbook["Project RA"].max_row}=$B$4)*(\'Project RA\'!$B$5:$B${workbook["Project RA"].max_row}<>""),""))),0)'
     briefing["A28"] = f'=IFERROR(TAKE(FILTER(\'Project RA\'!$B$5:$F${workbook["Project RA"].max_row},\'Project RA\'!$A$5:$A${workbook["Project RA"].max_row}=$B$5,""),7),"")'
     for row, column in ((14, "D"), (15, "E"), (16, "F"), (17, "G")):
         briefing.cell(row, 2, f'=IFERROR(INDEX(\'Room Cost MTD\'!${column}$5:${column}${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0))/INDEX(\'Room Cost MTD\'!$C$5:$C${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0)),"")')
     for column, source_column in ((1, "B"), (2, "C"), (3, "D")):
         briefing.cell(23, column, f'=IFERROR(INDEX(\'Guest Laundry MTD\'!${source_column}$5:${source_column}${last_room_cost_row},MATCH($B$4,\'Guest Laundry MTD\'!$A$5:$A${last_room_cost_row},0)),"")')
+    briefing["A22"] = "Rooms"
+    briefing["A23"] = ""
     briefing["B10"] = _safe_text(operation_data.get("Staff_Incharge"))
     briefing["A47"] = _safe_text(operation_data.get("Remarks"))
 
@@ -176,6 +182,14 @@ def create_morning_briefing_template(
     linen_sheet["A2"] = f"Morning Briefing | {month} | Masukkan biaya linen harian; total MTD dihitung otomatis."
     laundry_sheet = workbook["Guest Laundry MTD"]
     laundry_sheet["A2"] = f"Morning Briefing | {month} | Masukkan biaya Drop N Go harian; biaya per room dan total MTD dihitung otomatis."
+    laundry_sheet["B4"] = "Rooms"
+    imported_laundry_rows = {}
+    if guest_laundry_data is not None and not guest_laundry_data.empty and "Date" in guest_laundry_data.columns:
+        laundry_dates = pd.to_datetime(guest_laundry_data["Date"], errors="coerce", format="mixed")
+        for _, entry in guest_laundry_data.loc[laundry_dates.dt.strftime("%Y-%m") == month].iterrows():
+            parsed_date = pd.to_datetime(entry["Date"], errors="coerce", format="mixed")
+            if pd.notna(parsed_date):
+                imported_laundry_rows[parsed_date.strftime("%Y-%m-%d")] = entry
 
     _ensure_day_rows(room_cost, days_in_month)
     _ensure_day_rows(linen_sheet, days_in_month)
@@ -220,14 +234,34 @@ def create_morning_briefing_template(
                     if key == "Linen_Laundry":
                         linen_sheet.cell(linen_row, 2, value)
 
-        laundry_data = manual_data_by_date.get(date_key, {}) or {}
-        laundry_entries = laundry_data.get("Entries", pd.DataFrame())
-        if not laundry_entries.empty and "Entry_Type" in laundry_entries:
-            matching_laundry = laundry_entries.loc[laundry_entries["Entry_Type"] == "guest_laundry"]
-            if not matching_laundry.empty:
-                laundry_entry = matching_laundry.iloc[-1]
-                laundry_sheet.cell(laundry_row, 2, _number(laundry_entry.get("Qty")))
-                laundry_sheet.cell(laundry_row, 3, _number(laundry_entry.get("Total")))
+        imported_laundry = imported_laundry_rows.get(date_key)
+        if imported_laundry is not None:
+            laundry_sheet.cell(laundry_row, 2, _number(imported_laundry.get("Room_Nights")))
+            laundry_sheet.cell(laundry_row, 3, _number(imported_laundry.get("Guest_Laundry_Cost")))
+            if date_key == briefing_key:
+                room_numbers = [
+                    room.strip()
+                    for room in _safe_text(imported_laundry.get("Room_Numbers")).split(",")
+                    if room.strip()
+                ]
+                briefing["A23"] = "\n".join(
+                    ", ".join(room_numbers[index:index + 3])
+                    for index in range(0, len(room_numbers), 3)
+                )
+                alignment = copy(briefing["A23"].alignment)
+                alignment.wrap_text = True
+                briefing["A23"].alignment = alignment
+                if room_numbers:
+                    briefing.row_dimensions[23].height = max(briefing.row_dimensions[23].height or 0, 15 * ((len(room_numbers) + 2) // 3))
+        else:
+            laundry_data = manual_data_by_date.get(date_key, {}) or {}
+            laundry_entries = laundry_data.get("Entries", pd.DataFrame())
+            if not laundry_entries.empty and "Entry_Type" in laundry_entries:
+                matching_laundry = laundry_entries.loc[laundry_entries["Entry_Type"] == "guest_laundry"]
+                if not matching_laundry.empty:
+                    laundry_entry = matching_laundry.iloc[-1]
+                    laundry_sheet.cell(laundry_row, 2, _number(laundry_entry.get("Qty")))
+                    laundry_sheet.cell(laundry_row, 3, _number(laundry_entry.get("Total")))
 
     project_ra_sheet = workbook["Project RA"]
     project_ra_sheet["A2"] = f"Morning Briefing | {month} | Masukkan satu baris per RA per tanggal; isi credit kamar dan project/activity untuk Briefing."

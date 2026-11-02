@@ -1,8 +1,8 @@
 """Excel/PDF parsing + normalization for daily room-cost inputs.
 
 Split out of the former monolith room_cost.py. Owns the column constants,
-month validation, the shared normalization pipeline, and the four upload
-parsers (daily cost, night audit, energy, linen).
+month validation, the shared normalization pipeline, and workbook parsers for
+daily room costs, audit/energy inputs, and laundry reports.
 """
 import re
 from datetime import datetime
@@ -358,3 +358,247 @@ def parse_daily_linen_cost_workbook(source, month: str) -> pd.DataFrame:
         raise ValueError("Could not find Tanggal/Date and TOTAL BIAYA HARIAN columns in the workbook.")
     finally:
         workbook.close()
+
+
+def _report_day(value, month: str) -> str | None:
+    year, month_number = (int(part) for part in month.split("-"))
+    if isinstance(value, (datetime, pd.Timestamp)):
+        day = value.day
+    else:
+        numeric_day = pd.to_numeric(value, errors="coerce")
+        if pd.isna(numeric_day) or float(numeric_day) % 1:
+            parsed = pd.to_datetime(value, errors="coerce", format="mixed")
+            if pd.isna(parsed):
+                return None
+            day = parsed.day
+        else:
+            day = int(numeric_day)
+    try:
+        return pd.Timestamp(year=year, month=month_number, day=int(day)).strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def parse_bonvivo_linen_workbook(source, month: str) -> pd.DataFrame:
+    """Extract daily Linen HK charges, including regular, spotting/OOO, and prewash."""
+    month = _month_key(month)
+    if hasattr(source, "seek"):
+        source.seek(0)
+    workbook = openpyxl.load_workbook(source, data_only=True, read_only=False)
+    try:
+        worksheet = next(
+            (sheet for sheet in workbook.worksheets
+             if re.sub(r"[^a-z0-9]", "", sheet.title.lower()) == "linenhk"),
+            None,
+        )
+        if worksheet is None:
+            raise ValueError("Could not find the LINEN HK sheet in the Bonvivo workbook.")
+
+        daily_totals: dict[str, float] = {}
+        header_rows = []
+        for row_idx in range(1, worksheet.max_row + 1):
+            label = re.sub(r"[^a-z0-9]", "", str(worksheet.cell(row_idx, 2).value or "").lower())
+            if label == "tanggal":
+                date_columns = {
+                    col: _report_day(worksheet.cell(row_idx, col).value, month)
+                    for col in range(3, 33)
+                }
+                if any(date_columns.values()):
+                    header_rows.append((row_idx, date_columns))
+
+        if not header_rows:
+            raise ValueError("Could not find dated Linen HK detail tables in the Bonvivo workbook.")
+
+        for header_index, (header_row, date_columns) in enumerate(header_rows):
+            end_row = header_rows[header_index + 1][0] - 1 if header_index + 1 < len(header_rows) else worksheet.max_row
+            for row_idx in range(header_row + 1, end_row + 1):
+                item_label = str(worksheet.cell(row_idx, 2).value or "").strip().lower()
+                row_label = str(worksheet.cell(row_idx, 1).value or "").strip().lower()
+                if "total" in row_label or "total" in item_label:
+                    break
+                price = pd.to_numeric(worksheet.cell(row_idx, 34).value, errors="coerce")
+                if pd.isna(price) or price < 0:
+                    continue
+                for col, date_value in date_columns.items():
+                    if date_value is None:
+                        continue
+                    quantity = pd.to_numeric(worksheet.cell(row_idx, col).value, errors="coerce")
+                    if pd.isna(quantity) or quantity == 0:
+                        continue
+                    if quantity < 0:
+                        raise ValueError(f"Negative Linen HK quantity on Excel row {row_idx}.")
+                    daily_totals[date_value] = daily_totals.get(date_value, 0.0) + float(quantity) * float(price)
+
+        records = [
+            {
+                "Date": date_value,
+                "Occupancy": pd.NA,
+                "Room_Nights": pd.NA,
+                "Water": pd.NA,
+                "Electricity": pd.NA,
+                "Linen_Laundry": amount,
+            }
+            for date_value, amount in sorted(daily_totals.items())
+            if amount > 0
+        ]
+        if not records:
+            raise ValueError("No Linen HK charges were found for the selected month.")
+        return _normalise_daily_frame(
+            pd.DataFrame(records), month,
+            allow_missing_expenses=True,
+            allow_missing_room_nights=True,
+        )
+    finally:
+        workbook.close()
+        if hasattr(source, "seek"):
+            source.seek(0)
+
+
+def parse_dropngo_guest_laundry_workbook(source, month: str) -> pd.DataFrame:
+    """Extract daily guest-laundry cost and distinct serviced rooms from Drop N Go."""
+    month = _month_key(month)
+    if hasattr(source, "seek"):
+        source.seek(0)
+    workbook = openpyxl.load_workbook(source, data_only=True, read_only=False)
+    try:
+        worksheet = next(
+            (sheet for sheet in workbook.worksheets
+             if re.sub(r"[^a-z0-9]", "", sheet.title.lower()) == "guestlaundry"),
+            None,
+        )
+        if worksheet is None:
+            raise ValueError("Could not find the GUEST LAUNDRY sheet in the Drop N Go workbook.")
+
+        header_row = None
+        for row_idx in range(1, worksheet.max_row + 1):
+            labels = {
+                re.sub(r"[^a-z0-9]", "", str(worksheet.cell(row_idx, col).value or "").lower())
+                for col in range(1, 5)
+            }
+            if {"item", "price", "date"}.issubset(labels):
+                header_row = row_idx
+                break
+        if header_row is None:
+            raise ValueError("Could not find Item, price, and Date headers in GUEST LAUNDRY.")
+
+        day_by_column = {}
+        merged_headers = {
+            col: worksheet.cell(rng.min_row, rng.min_col).value
+            for rng in worksheet.merged_cells.ranges
+            if rng.min_row <= header_row + 1 <= rng.max_row
+            and rng.min_col >= 4
+            for col in range(rng.min_col, rng.max_col + 1)
+        }
+        for col in range(4, 57):
+            day_value = merged_headers.get(col, worksheet.cell(header_row + 1, col).value)
+            day_by_column[col] = _report_day(day_value, month)
+
+        totals: dict[str, float] = {}
+        rooms: dict[str, set[str]] = {}
+        for col, date_value in day_by_column.items():
+            room_value = worksheet.cell(header_row + 2, col).value
+            if date_value is None or room_value is None:
+                continue
+            room_key = str(room_value).strip()
+            if not room_key:
+                continue
+            for row_idx in range(header_row + 3, worksheet.max_row + 1):
+                price = pd.to_numeric(worksheet.cell(row_idx, 3).value, errors="coerce")
+                quantity = pd.to_numeric(worksheet.cell(row_idx, col).value, errors="coerce")
+                if pd.isna(price) or pd.isna(quantity) or quantity == 0:
+                    continue
+                if price < 0 or quantity < 0:
+                    raise ValueError(f"Negative Drop N Go price or quantity on Excel row {row_idx}.")
+                totals[date_value] = totals.get(date_value, 0.0) + float(price) * float(quantity)
+                rooms.setdefault(date_value, set()).add(room_key)
+
+        records = [
+            {
+                "Date": date_value,
+                "Room_Nights": len(rooms[date_value]),
+                "Room_Numbers": ", ".join(sorted(rooms[date_value], key=lambda room: (not room.isdigit(), int(room) if room.isdigit() else room))),
+                "Guest_Laundry_Cost": amount,
+            }
+            for date_value, amount in sorted(totals.items())
+            if amount > 0 and rooms.get(date_value)
+        ]
+        return pd.DataFrame(records, columns=["Date", "Room_Nights", "Room_Numbers", "Guest_Laundry_Cost"])
+    finally:
+        workbook.close()
+        if hasattr(source, "seek"):
+            source.seek(0)
+
+
+def parse_dropngo_linen_workbook(source, month: str) -> pd.DataFrame:
+    """Extract daily Linen HK charges from Drop N Go's item-by-day worksheet."""
+    month = _month_key(month)
+    if hasattr(source, "seek"):
+        source.seek(0)
+    workbook = openpyxl.load_workbook(source, data_only=True, read_only=False)
+    try:
+        worksheet = next(
+            (sheet for sheet in workbook.worksheets
+             if re.sub(r"[^a-z0-9]", "", sheet.title.lower()) == "linenhk"),
+            None,
+        )
+        if worksheet is None:
+            raise ValueError("Could not find the LINEN HK sheet in the Drop N Go workbook.")
+
+        header_row = None
+        date_columns = {}
+        for row_idx in range(1, worksheet.max_row + 1):
+            item_label = re.sub(r"[^a-z0-9]", "", str(worksheet.cell(row_idx, 2).value or "").lower())
+            price_label = re.sub(r"[^a-z0-9]", "", str(worksheet.cell(row_idx, 3).value or "").lower())
+            if item_label == "item" and price_label == "price":
+                candidate = {
+                    col: _report_day(worksheet.cell(row_idx, col).value, month)
+                    for col in range(4, min(35, worksheet.max_column + 1))
+                }
+                if any(candidate.values()):
+                    header_row = row_idx
+                    date_columns = candidate
+                    break
+        if header_row is None:
+            raise ValueError("Could not find dated item/price columns in Drop N Go LINEN HK.")
+
+        totals: dict[str, float] = {}
+        for row_idx in range(header_row + 1, worksheet.max_row + 1):
+            item_label = str(worksheet.cell(row_idx, 2).value or "").strip().lower()
+            if "total" in item_label:
+                break
+            price = pd.to_numeric(worksheet.cell(row_idx, 3).value, errors="coerce")
+            if pd.isna(price) or price < 0:
+                continue
+            for col, date_value in date_columns.items():
+                if date_value is None:
+                    continue
+                quantity = pd.to_numeric(worksheet.cell(row_idx, col).value, errors="coerce")
+                if pd.isna(quantity) or quantity == 0:
+                    continue
+                if quantity < 0:
+                    raise ValueError(f"Negative Drop N Go Linen HK quantity on Excel row {row_idx}.")
+                totals[date_value] = totals.get(date_value, 0.0) + float(quantity) * float(price)
+
+        records = [
+            {
+                "Date": date_value,
+                "Occupancy": pd.NA,
+                "Room_Nights": pd.NA,
+                "Water": pd.NA,
+                "Electricity": pd.NA,
+                "Linen_Laundry": amount,
+            }
+            for date_value, amount in sorted(totals.items())
+            if amount > 0
+        ]
+        if not records:
+            raise ValueError("No Drop N Go Linen HK charges were found for the selected month.")
+        return _normalise_daily_frame(
+            pd.DataFrame(records), month,
+            allow_missing_expenses=True,
+            allow_missing_room_nights=True,
+        )
+    finally:
+        workbook.close()
+        if hasattr(source, "seek"):
+            source.seek(0)

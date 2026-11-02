@@ -408,6 +408,34 @@ class TestDailyRoomCost:
         assert replaced["Remarks"] == "Updated"
         assert len(replaced["Entries"]) == 1
 
+    def test_dropngo_import_preserves_other_manual_entries(self, tmp_path):
+        room_cost.save_manual_briefing_data(
+            "2026-11-01",
+            staff_incharge="Nia",
+            entries=pd.DataFrame([
+                {"Entry_Type": "ra", "Staff_Name": "Ayu"},
+                {"Entry_Type": "project_pa", "Area": "Lobby"},
+            ]),
+            storage_dir=str(tmp_path),
+        )
+        imported = pd.DataFrame([{
+            "Date": "2026-11-01", "Room_Nights": 5, "Room_Numbers": "2522, 2523, 2723, 2726, 2537",
+            "Guest_Laundry_Cost": 110000,
+        }])
+
+        room_cost.save_guest_laundry_data("2026-11", imported, storage_dir=str(tmp_path))
+        saved = room_cost.load_manual_briefing_data("2026-11-01", str(tmp_path))
+        laundry = room_cost.load_guest_laundry_data("2026-11", str(tmp_path))
+
+        assert set(saved["Entries"]["Entry_Type"]) == {"ra", "project_pa", "guest_laundry"}
+        assert saved["Staff_Incharge"] == "Nia"
+        assert laundry.to_dict("records") == [{
+            "Date": "2026-11-01", "Room_Nights": 5.0, "Guest_Laundry_Cost": 110000.0,
+            "Room_Numbers": "2522, 2523, 2723, 2726, 2537",
+        }]
+        with pytest.raises(ValueError, match="Confirm replacement"):
+            room_cost.save_guest_laundry_data("2026-11", imported, storage_dir=str(tmp_path))
+
     def test_night_audit_parser_extracts_room_sold_and_occupancy(self):
         workbook_buffer = BytesIO()
         workbook = openpyxl.Workbook()
@@ -554,6 +582,84 @@ class TestDailyRoomCost:
         assert imported["Linen_Laundry"].tolist() == [150, 250]
         assert imported["Linen_Laundry"].sum() == 400
 
+    def test_bonvivo_parser_sums_linen_hk_sections_per_day(self):
+        workbook_buffer = BytesIO()
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "LINEN HK"
+        sheet.cell(7, 2, "TANGGAL")
+        sheet.cell(7, 3, pd.Timestamp("2026-11-01").to_pydatetime())
+        sheet.cell(7, 4, pd.Timestamp("2026-11-02").to_pydatetime())
+        sheet.cell(8, 2, "NOMOR BILL")
+        sheet.cell(9, 2, "SHEET TWIN")
+        sheet.cell(9, 3, 2)
+        sheet.cell(9, 4, 3)
+        sheet.cell(9, 34, 100)
+        sheet.cell(10, 1, "TOTAL")
+        sheet.cell(12, 2, "TANGGAL")
+        sheet.cell(12, 3, pd.Timestamp("2024-11-01").to_pydatetime())
+        sheet.cell(13, 2, "HAND TOWEL OOO")
+        sheet.cell(13, 3, 1)
+        sheet.cell(13, 34, 50)
+        sheet.cell(14, 1, "TOTAL")
+        workbook.save(workbook_buffer)
+        workbook_buffer.seek(0)
+
+        imported = room_cost.parse_bonvivo_linen_workbook(workbook_buffer, "2026-11")
+
+        assert imported["Date"].tolist() == ["2026-11-01", "2026-11-02"]
+        assert imported["Linen_Laundry"].tolist() == [250, 300]
+
+    def test_dropngo_parser_aggregates_daily_cost_and_distinct_rooms(self):
+        workbook_buffer = BytesIO()
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "GUEST LAUNDRY"
+        for column, value in enumerate(("No", "Item", "price", "Date"), 1):
+            sheet.cell(4, column, value)
+        sheet.merge_cells("D5:E5")
+        sheet["D5"] = 1
+        sheet.merge_cells("F5:G5")
+        sheet["F5"] = 2
+        for column, room in enumerate((2726, 2537, 2523, 2522), 4):
+            sheet.cell(6, column, room)
+        sheet.cell(7, 1, "PAKET / 5 PCS")
+        sheet.cell(7, 3, 22000)
+        sheet.cell(7, 4, 1)
+        sheet.cell(7, 5, 1)
+        sheet.cell(7, 6, 1)
+        sheet.cell(8, 1, 1)
+        sheet.cell(8, 2, "Laundry item")
+        sheet.cell(8, 3, 5000)
+        sheet.cell(8, 4, 2)
+        sheet.cell(8, 6, 1)
+        linen = workbook.create_sheet("LINEN HK")
+        linen.cell(3, 2, "Item")
+        linen.cell(3, 3, "Price")
+        linen.cell(3, 4, 1)
+        linen.cell(3, 5, 2)
+        linen.cell(4, 2, "PILLOW CASE")
+        linen.cell(4, 3, 700)
+        linen.cell(4, 4, 323)
+        linen.cell(4, 5, 10)
+        workbook.save(workbook_buffer)
+        workbook_buffer.seek(0)
+
+        imported = room_cost.parse_dropngo_guest_laundry_workbook(workbook_buffer, "2026-11")
+
+        assert imported.to_dict("records") == [
+            {
+                "Date": "2026-11-01", "Room_Nights": 2,
+                "Room_Numbers": "2537, 2726", "Guest_Laundry_Cost": 54000.0,
+            },
+            {
+                "Date": "2026-11-02", "Room_Nights": 1,
+                "Room_Numbers": "2523", "Guest_Laundry_Cost": 27000.0,
+            },
+        ]
+        linen_costs = room_cost.parse_dropngo_linen_workbook(workbook_buffer, "2026-11")
+        assert linen_costs["Linen_Laundry"].tolist() == [226100, 7000]
+
     def test_mtd_sr_rate_aggregates_same_day_and_applies_retroactively(self):
         sr_data = pd.DataFrame([
             {"Date": "2026-10-01", "Total": 2000000},
@@ -684,6 +790,11 @@ class TestDailyRoomCost:
                 "Date": briefing_date_text, "Occupancy": 90.0, "Room_Nights": 90,
                 "Water": 9000, "Electricity": 18000, "Linen_Laundry": 4500,
             }]),
+            guest_laundry_data=pd.DataFrame([{
+                "Date": briefing_date_text, "Room_Nights": 5,
+                "Room_Numbers": "2522, 2523, 2537, 2723, 2726",
+                "Guest_Laundry_Cost": 110000,
+            }]),
             manual_data_by_date=manual_data,
         )
         workbook = openpyxl.load_workbook(
@@ -703,12 +814,18 @@ class TestDailyRoomCost:
         assert briefing["B5"].value == "=B4+1"
         assert briefing["A6"].value == "OCCUPANCY & STAFF"
         assert briefing["A7"].value == "Occupancy Semalam (%)"
+        assert briefing["B6"].value is None
         assert "Room Cost MTD" in briefing["B7"].value
+        assert briefing["B7"].number_format == "0.00%"
         assert briefing["A8"].value == "Room Sold"
+        assert "Room Cost MTD" in briefing["B8"].value
         assert "Project RA" in briefing["B9"].value
         assert briefing["B10"].value == "Dewi"
         assert briefing["A12"].value == "ROOM COST | DETAIL HARI KEMARIN"
         assert briefing["A21"].value == "DROP N GO LAUNDRY | HARI KEMARIN"
+        assert briefing["A22"].value == "Rooms"
+        assert briefing["A23"].value == "2522, 2523, 2537\n2723, 2726"
+        assert briefing["A23"].alignment.wrap_text is True
         assert briefing["A26"].value == "PROJECT RA | HARI INI"
         assert briefing["A35"].value == "PROJECT PUBLIC AREA | HARI INI"
         assert briefing["A46"].value == "REMARK / FOLLOW UP"
@@ -760,6 +877,9 @@ class TestDailyRoomCost:
         assert room_cost.cell(daily_row, 6).value == 18000
         assert room_cost.cell(daily_row, 7).value == 4500
         assert workbook["Daily Linen Cost MTD"].cell(daily_row, 2).value == 4500
+        assert workbook["Guest Laundry MTD"].cell(daily_row, 2).value == 5
+        assert workbook["Guest Laundry MTD"].cell(daily_row, 3).value == 110000
+        assert workbook["Guest Laundry MTD"]["B4"].value == "Rooms"
         operation_row = 4 + (briefing_date + timedelta(days=1)).day
         assert workbook["Guest Laundry MTD"].cell(operation_row, 3).value == 12345
         assert workbook["SR Total MTD"]["B5"].value == "SR-001"

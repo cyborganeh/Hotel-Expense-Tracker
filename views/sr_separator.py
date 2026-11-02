@@ -89,6 +89,89 @@ def _render_room_cost_uploader(
     st.sidebar.caption(caption_fn(rows))
 
 
+def _render_laundry_reports_uploader(selected_month: str, saved_daily_costs: pd.DataFrame) -> None:
+    """Import Bonvivo and Drop N Go reports as one monthly laundry update."""
+    st.sidebar.markdown("### Laundry Reports")
+    bonvivo_upload = st.sidebar.file_uploader(
+        "Upload Bonvivo report (.xlsx)",
+        type=["xlsx"],
+        key=f"bonvivo_laundry_upload_{selected_month}",
+        help="Reads Linen HK charges including regular, Spotting/OOO, and prewash.",
+    )
+    dropngo_upload = st.sidebar.file_uploader(
+        "Upload Drop N Go report (.xlsx)",
+        type=["xlsx"],
+        key=f"dropngo_laundry_upload_{selected_month}",
+        help="Reads Linen HK charges and daily Guest Laundry by room.",
+    )
+    if bonvivo_upload is None or dropngo_upload is None:
+        if bonvivo_upload is not None or dropngo_upload is not None:
+            st.sidebar.caption("Upload both reports to continue; each file stays in its own field.")
+        return
+
+    try:
+        validate_upload_size(bonvivo_upload)
+        validate_upload_size(dropngo_upload)
+        bonvivo_rows = room_cost.parse_bonvivo_linen_workbook(bonvivo_upload, selected_month)
+        dropngo_linen_rows = room_cost.parse_dropngo_linen_workbook(dropngo_upload, selected_month)
+        dropngo_guest_rows = room_cost.parse_dropngo_guest_laundry_workbook(dropngo_upload, selected_month)
+
+        linen_rows = pd.concat([bonvivo_rows, dropngo_linen_rows], ignore_index=True)
+        linen_totals = linen_rows.groupby("Date", as_index=False)["Linen_Laundry"].sum()
+        imported_linen = pd.DataFrame(index=range(len(linen_totals)), columns=room_cost.DAILY_COLUMNS)
+        imported_linen["Date"] = linen_totals["Date"]
+        imported_linen["Linen_Laundry"] = linen_totals["Linen_Laundry"]
+        saved_guest_rows = room_cost.load_guest_laundry_data(selected_month)
+    except Exception as exc:
+        show_validation_banner([f"Laundry reports: {exc}"], level="error")
+        return
+
+    duplicate_dates = sorted(
+        (set(saved_daily_costs["Date"]) & set(imported_linen["Date"]))
+        | (set(saved_guest_rows["Date"]) & set(dropngo_guest_rows["Date"]))
+    )
+    if duplicate_dates:
+        st.sidebar.warning("Laundry data exists for: " + ", ".join(duplicate_dates))
+        replace_confirmed = st.sidebar.checkbox(
+            "Confirm replacement for these laundry dates",
+            key=f"laundry_reports_replace_{selected_month}",
+        )
+    else:
+        replace_confirmed = False
+
+    dng_linen_total = float(dropngo_linen_rows["Linen_Laundry"].sum())
+    dng_guest_total = float(dropngo_guest_rows["Guest_Laundry_Cost"].sum())
+    if st.sidebar.button(
+        "Save Laundry Reports",
+        key=f"laundry_reports_save_{selected_month}",
+        disabled=bool(duplicate_dates) and not replace_confirmed,
+        type="primary",
+    ):
+        try:
+            merged = room_cost.merge_daily_room_costs(
+                saved_daily_costs, imported_linen,
+                replace_dates=replace_confirmed, month=selected_month,
+            )
+            room_cost.save_daily_room_costs(selected_month, merged)
+            if not dropngo_guest_rows.empty:
+                room_cost.save_guest_laundry_data(
+                    selected_month, dropngo_guest_rows, replace_dates=replace_confirmed,
+                )
+            st.sidebar.success(
+                f"Saved combined Linen HK Rp {imported_linen['Linen_Laundry'].sum():,.0f}; "
+                f"Drop N Go guest laundry Rp {dng_guest_total:,.0f}."
+            )
+            st.rerun()
+        except Exception as exc:
+            show_validation_banner([f"Laundry reports: {exc}"], level="error")
+    st.sidebar.caption(
+        f"Bonvivo Linen HK Rp {bonvivo_rows['Linen_Laundry'].sum():,.0f} + "
+        f"Drop N Go Linen HK Rp {dng_linen_total:,.0f}; "
+        f"Drop N Go Guest Laundry Rp {dng_guest_total:,.0f} / "
+        f"{dropngo_guest_rows['Room_Nights'].sum():,.0f} rooms."
+    )
+
+
 def render_sr_separator() -> None:
     """
     Warehouse Stock Request (SR) Separator UI.
@@ -250,22 +333,7 @@ def render_sr_separator() -> None:
         selected_month=selected_month,
     )
 
-    _render_room_cost_uploader(
-        section="Daily Linen Cost",
-        prefix="linen_cost",
-        uploader_label="Upload Daily Linen Cost workbook (.xlsx)",
-        help_text="Reads TOTAL BIAYA HARIAN by date and preserves saved room, water, and electricity data.",
-        parser_fn=room_cost.parse_daily_linen_cost_workbook,
-        duplicate_warning="Linen data exists for",
-        replace_checkbox_label="Confirm linen value replacement",
-        save_button_label="Save Linen Costs",
-        success_msg_fn=lambda r: f"Saved linen total Rp {r['Linen_Laundry'].sum():,.0f}.",
-        caption_fn=lambda r: f"Detected linen costs for {len(r)} date(s).",
-        error_prefix="Daily Linen Cost workbook",
-        empty_caption="",
-        saved_daily_costs=saved_daily_costs,
-        selected_month=selected_month,
-    )
+    _render_laundry_reports_uploader(selected_month, saved_daily_costs)
 
     room_cost_daily_df = pd.DataFrame()
     room_cost_monthly_df = pd.DataFrame()
@@ -328,6 +396,7 @@ def render_sr_separator() -> None:
             selected_month,
             sr_data=sr_df,
             daily_cost_data=saved_daily_costs,
+            guest_laundry_data=room_cost.load_guest_laundry_data(selected_month),
             manual_data_by_date={
                 report_date.isoformat(): room_cost.load_manual_briefing_data(report_date)
                 for report_date in {
@@ -413,9 +482,6 @@ def render_sr_separator() -> None:
             disp_cat['Total_Amount'] = disp_cat['Total_Amount'].apply(format_idr)
             disp_cat['Pct_Of_Total'] = disp_cat['Pct_Of_Total'].apply(lambda x: f"{x:.1f}%")
             disp_cat['Spend_Per_Room_Sold'] = disp_cat['Spend_Per_Room_Sold'].astype(str)
-            st.dataframe(disp_cat, width="stretch", hide_index=True)
-
-    # Helper function for rendering a category tab
     def render_category_view(category_name: str, emoji: str):
         c_items = sr_parser.get_item_summary(sr_df, category_name)
         c_trxs = sr_df[sr_df['Category'] == category_name].sort_values(by=['Date', 'Item_Name'])
@@ -597,7 +663,7 @@ def render_sr_separator() -> None:
                 manual_entries.loc[manual_entries["Entry_Type"] == "guest_laundry", "Qty"].iloc[-1]
             ) else 0
             laundry_room_nights = st.number_input(
-                "Guest Laundry Room Nights", min_value=0, step=1, value=laundry_room_nights_default,
+                "Guest Laundry Rooms", min_value=0, step=1, value=laundry_room_nights_default,
             )
 
             staff_incharge = st.text_input(

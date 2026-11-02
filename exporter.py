@@ -917,6 +917,7 @@ def create_morning_briefing_template(
     sr_data: Optional[pd.DataFrame] = None,
     daily_cost_data: Optional[pd.DataFrame] = None,
     manual_data_by_date: Optional[dict] = None,
+    guest_laundry_data: Optional[pd.DataFrame] = None,
 ) -> bytes:
     from briefing_template import create_morning_briefing_template as fill_shared_template
 
@@ -925,5 +926,6 @@ def create_morning_briefing_template(
         sr_data=sr_data,
         daily_cost_data=daily_cost_data,
         manual_data_by_date=manual_data_by_date,
+        guest_laundry_data=guest_laundry_data,
     )
 

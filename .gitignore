@@ -42,5 +42,9 @@ env/
 .~lock.*.pptx#
 .DS_Store
 
+# Generated/local workbook data; keep the application master template tracked
+/reports/*.xlsx
+/Report laundry*.xlsx
+
 # Streamlit secrets
 .streamlit/secrets.toml

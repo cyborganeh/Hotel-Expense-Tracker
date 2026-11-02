@@ -286,6 +286,92 @@ def save_manual_briefing_data(
         connection.close()
 
 
+def load_guest_laundry_data(month: str, storage_dir: Optional[str] = None) -> pd.DataFrame:
+    """Load stored guest-laundry room counts and costs for one month."""
+    month = _month_key(month)
+    connection = _connect_room_cost_database(storage_dir)
+    try:
+        rows = connection.execute(
+            "SELECT date, SUM(qty), SUM(total), GROUP_CONCAT(NULLIF(notes, ''), ', ') "
+            "FROM manual_daily_entries "
+            "WHERE entry_type = 'guest_laundry' AND date LIKE ? GROUP BY date ORDER BY date",
+            (f"{month}-%",),
+        ).fetchall()
+    finally:
+        connection.close()
+    return pd.DataFrame(rows, columns=["Date", "Room_Nights", "Guest_Laundry_Cost", "Room_Numbers"])
+
+
+def save_guest_laundry_data(
+    month: str,
+    data: pd.DataFrame,
+    *,
+    replace_dates: bool = False,
+    storage_dir: Optional[str] = None,
+) -> None:
+    """Replace imported guest-laundry rows for dates, leaving other entry types intact."""
+    month = _month_key(month)
+    required = {"Date", "Room_Nights", "Guest_Laundry_Cost"}
+    if not required.issubset(data.columns):
+        raise ValueError("Drop N Go data must include Date, Room_Nights, and Guest_Laundry_Cost.")
+    if data.empty:
+        raise ValueError("No Drop N Go rows to save.")
+
+    normalized = data[["Date", "Room_Nights", "Guest_Laundry_Cost"]].copy()
+    normalized["Room_Numbers"] = data.get("Room_Numbers", "")
+    parsed_dates = pd.to_datetime(normalized["Date"], errors="coerce", format="mixed")
+    if parsed_dates.isna().any():
+        raise ValueError("Drop N Go contains an invalid date.")
+    normalized["Date"] = parsed_dates.dt.strftime("%Y-%m-%d")
+    if (normalized["Date"].str[:7] != month).any():
+        raise ValueError(f"Drop N Go contains dates outside selected month {month}.")
+    if normalized["Date"].duplicated().any():
+        raise ValueError("Drop N Go contains duplicate dates.")
+
+    room_nights = pd.to_numeric(normalized["Room_Nights"], errors="coerce")
+    costs = pd.to_numeric(normalized["Guest_Laundry_Cost"], errors="coerce")
+    if room_nights.isna().any() or (room_nights <= 0).any() or (room_nights % 1 != 0).any():
+        raise ValueError("Drop N Go room counts must be positive whole numbers.")
+    if costs.isna().any() or (costs < 0).any():
+        raise ValueError("Drop N Go costs must be non-negative numbers.")
+    normalized["Room_Nights"] = room_nights.astype(int)
+    normalized["Guest_Laundry_Cost"] = costs.astype(float)
+
+    connection = _connect_room_cost_database(storage_dir)
+    try:
+        dates = normalized["Date"].tolist()
+        placeholders = ",".join("?" for _ in dates)
+        existing = {
+            row[0] for row in connection.execute(
+                f"SELECT DISTINCT date FROM manual_daily_entries "
+                f"WHERE entry_type = 'guest_laundry' AND date IN ({placeholders})",
+                dates,
+            ).fetchall()
+        }
+        duplicates = existing.intersection(dates)
+        if duplicates and not replace_dates:
+            raise ValueError(
+                "Drop N Go data already exists for: " + ", ".join(sorted(duplicates))
+                + ". Confirm replacement before importing."
+            )
+        with connection:
+            for row in normalized.itertuples(index=False):
+                room_numbers = getattr(row, "Room_Numbers", "")
+                if pd.isna(room_numbers):
+                    room_numbers = ""
+                connection.execute(
+                    "DELETE FROM manual_daily_entries WHERE date = ? AND entry_type = 'guest_laundry'",
+                    (row.Date,),
+                )
+                connection.execute(
+                    "INSERT INTO manual_daily_entries "
+                    "(date, entry_type, qty, total, notes) VALUES (?, 'guest_laundry', ?, ?, ?)",
+                    (row.Date, int(row.Room_Nights), float(row.Guest_Laundry_Cost), str(room_numbers)),
+                )
+    finally:
+        connection.close()
+
+
 def load_daily_room_costs(month: str, storage_dir: Optional[str] = None) -> pd.DataFrame:
     """Load daily costs from SQLite, importing legacy month JSON if needed."""
     month = _month_key(month)
