@@ -35,7 +35,7 @@ def main():
 
     for source in (
         "app.py", "parser.py", "matcher.py", "exporter.py", "briefing_template.py",
-        "sr_parser.py", "ui_components.py",
+        "room_cost.py", "sr_parser.py", "ui_components.py",
     ):
         cmd.extend(["--add-data", f"{source};."])
 
