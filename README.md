@@ -50,11 +50,11 @@ Use **Download Morning Briefing Template (.xlsx)** to export the user's seven-sh
 2. `SR Total MTD` — SR vouchers and cumulative month-to-date spend.
 3. `Daily Linen Cost MTD` — daily linen and cumulative month-to-date cost.
 4. `Guest Laundry MTD` — Drop N Go room count, daily cost, cost per room, and cumulative total.
-5. `Public Area Project` — the template's monthly Public Area task checklist.
-6. `Project RA` — saved Room Attendant project and activity entries.
+5. `Daily PA` — daily Public Area activity log; filled manually in the workbook.
+6. `PA Matrix` — the template's monthly Public Area task checklist.
 7. `Room Cost MTD` — daily occupancy, room nights, SR allocation, utilities, and linen.
 
-The briefing date defaults to yesterday in the selected month, or the month's last day when exporting a different month. Manual Room Attendant, incharge, follow-up, Drop N Go, and Public Area project data is filled for the corresponding date. The removed duplicate `Daily Public Area` tab and its Briefing section are not added back.
+The briefing date defaults to yesterday in the selected month, or the month's last day when exporting a different month. Manual Room Attendant, incharge, follow-up, Drop N Go, and Public Area project data is filled for the corresponding date.
 
 Water, electricity, and linen laundry are divided by that day's room nights. SR spend and room nights are accumulated month-to-date; the current SR-per-room rate is total MTD SR spend divided by MTD room nights. The latest MTD rate is applied retroactively to the saved dates in that MTD period. Missing daily dates and SR vouchers outside the selected month are reported. The daily and MTD breakdown is available in the view and the exported `Room Cost Daily` worksheet.
 

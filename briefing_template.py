@@ -127,7 +127,7 @@ def create_morning_briefing_template(
         workbook = openpyxl.load_workbook(BytesIO(template_bytes))
     expected_sheets = [
         "Briefing", "SR Total MTD", "Daily Linen Cost MTD", "Guest Laundry MTD",
-        "Public Area Project", "Project RA", "Room Cost MTD",
+        "Daily PA", "PA Matrix", "Room Cost MTD",
     ]
     if workbook.sheetnames != expected_sheets:
         raise ValueError("The shared morning briefing template has an unexpected sheet layout.")
@@ -142,8 +142,6 @@ def create_morning_briefing_template(
     briefing["B7"].number_format = "0.00%"
     briefing["B8"] = f'=IFERROR(INDEX(\'Room Cost MTD\'!$C$5:$C${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0)),"")'
     briefing["B8"].number_format = "#,##0"
-    briefing["B9"] = f'=IFERROR(ROWS(UNIQUE(FILTER(\'Project RA\'!$B$5:$B${workbook["Project RA"].max_row},(\'Project RA\'!$A$5:$A${workbook["Project RA"].max_row}=$B$4)*(\'Project RA\'!$B$5:$B${workbook["Project RA"].max_row}<>""),""))),0)'
-    briefing["A28"] = f'=IFERROR(TAKE(FILTER(\'Project RA\'!$B$5:$F${workbook["Project RA"].max_row},\'Project RA\'!$A$5:$A${workbook["Project RA"].max_row}=$B$5,""),7),"")'
     for row, column in ((14, "D"), (15, "E"), (16, "F"), (17, "G")):
         briefing.cell(row, 2, f'=IFERROR(INDEX(\'Room Cost MTD\'!${column}$5:${column}${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0))/INDEX(\'Room Cost MTD\'!$C$5:$C${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0)),"")')
     for column, source_column in ((1, "B"), (2, "C"), (3, "D")):
@@ -263,38 +261,46 @@ def create_morning_briefing_template(
                     laundry_sheet.cell(laundry_row, 2, _number(laundry_entry.get("Qty")))
                     laundry_sheet.cell(laundry_row, 3, _number(laundry_entry.get("Total")))
 
-    project_ra_sheet = workbook["Project RA"]
-    project_ra_sheet["A2"] = f"Morning Briefing | {month} | Masukkan satu baris per RA per tanggal; isi credit kamar dan project/activity untuk Briefing."
-    for row in range(5, project_ra_sheet.max_row + 1):
-        for column in range(1, 7):
-            project_ra_sheet.cell(row, column).value = None
     ra_records = []
     for report_date, report_data in ((briefing_date, briefing_data), (operation_date, operation_data)):
         entries = report_data.get("Entries", pd.DataFrame())
         if not entries.empty and "Entry_Type" in entries:
             ra_records.extend((report_date, entry) for _, entry in entries.loc[entries["Entry_Type"] == "ra"].iterrows())
-    for row, (report_date, entry) in zip(range(5, project_ra_sheet.max_row + 1), ra_records):
-        project_ra_sheet.cell(row, 1, report_date)
-        project_ra_sheet.cell(row, 2, _safe_text(entry.get("Staff_Name")))
-        project_ra_sheet.cell(row, 3, _safe_text(entry.get("Section")))
-        project_ra_sheet.cell(row, 4, _number(entry.get("Room_Credit")))
-        project_ra_sheet.cell(row, 5, _safe_text(entry.get("Description")))
-        project_ra_sheet.cell(row, 6, _safe_text(entry.get("Notes")))
+
+    # Briefing 'PROJECT RA | HARI INI': A=Staff_Name, B=Description, C=Section,
+    # D='{Room_Credit} Room' + Notes. Rows 28-33 hold the operation-day RA entries.
+    for row in range(28, 34):
+        for column in range(1, 5):
+            briefing.cell(row, column).value = None
+    operation_ra = [entry for report_date, entry in ra_records if report_date == operation_date]
+    for row, entry in zip(range(28, 34), operation_ra):
+        briefing.cell(row, 1, _safe_text(entry.get("Staff_Name")))
+        briefing.cell(row, 2, _safe_text(entry.get("Description")))
+        briefing.cell(row, 3, _safe_text(entry.get("Section")))
+        credit = _number(entry.get("Room_Credit"))
+        credit_text = f"{int(credit)} Room" if credit is not None and credit == int(credit) else (f"{credit} Room" if credit is not None else "")
+        notes = _safe_text(entry.get("Notes"))
+        briefing.cell(row, 4, " — ".join(filter(None, [credit_text, notes])))
+    unique_staff = {_safe_text(entry.get("Staff_Name")) for _, entry in ra_records if _safe_text(entry.get("Staff_Name"))}
+    briefing["B9"] = len(unique_staff) if unique_staff else None
 
     project_entries = operation_data.get("Entries", pd.DataFrame())
     if not project_entries.empty and "Entry_Type" in project_entries:
         project_entries = project_entries.loc[project_entries["Entry_Type"] == "project_pa"]
-    for row in range(37, 46):
-        for column in range(1, 6):
+    # PA rows merge vertically in two-row blocks; write merge anchors (A,B,C)
+    # plus column D, which is never merged.
+    for row in range(37, 43):
+        briefing.cell(row, 4).value = None
+    for row in (37, 39, 41):
+        for column in (1, 2, 3):
             briefing.cell(row, column).value = None
-    for row, (_, entry) in zip(range(37, 46), project_entries.iterrows() if not project_entries.empty else []):
+    for row, (_, entry) in zip((37, 39, 41), project_entries.iterrows() if not project_entries.empty else []):
         briefing.cell(row, 1, _safe_text(entry.get("Area")))
         briefing.cell(row, 2, _safe_text(entry.get("Description")))
-        briefing.cell(row, 3, _number(entry.get("Qty")))
-        briefing.cell(row, 4, _safe_text(entry.get("Unit")))
-        briefing.cell(row, 5, _number(entry.get("Unit_Cost")))
+        briefing.cell(row, 3, _safe_text(entry.get("Unit")))
+        briefing.cell(row, 4, _safe_text(entry.get("Notes")))
 
-    checklist = workbook["Public Area Project"]
+    checklist = workbook["PA Matrix"]
     checklist["D2"] = datetime(month_start.year, month_start.month, 1)
     checklist["D2"].number_format = "mmmm yyyy"
     for row in range(4, checklist.max_row + 1):

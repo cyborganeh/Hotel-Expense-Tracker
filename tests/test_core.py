@@ -803,7 +803,7 @@ class TestDailyRoomCost:
 
         assert workbook.sheetnames == [
             "Briefing", "SR Total MTD", "Daily Linen Cost MTD", "Guest Laundry MTD",
-            "Public Area Project", "Project RA", "Room Cost MTD",
+            "Daily PA", "PA Matrix", "Room Cost MTD",
         ]
         briefing = workbook["Briefing"]
         assert briefing["A2"].value == (
@@ -819,7 +819,7 @@ class TestDailyRoomCost:
         assert briefing["B7"].number_format == "0.00%"
         assert briefing["A8"].value == "Room Sold"
         assert "Room Cost MTD" in briefing["B8"].value
-        assert "Project RA" in briefing["B9"].value
+        assert briefing["B9"].value == 1
         assert briefing["B10"].value == "Dewi"
         assert briefing["A12"].value == "ROOM COST | DETAIL HARI KEMARIN"
         assert briefing["A21"].value == "DROP N GO LAUNDRY | HARI KEMARIN"
@@ -834,21 +834,13 @@ class TestDailyRoomCost:
         assert briefing["A37"].value == "Lobby"
         assert briefing["B37"].value == "Polish floor"
         assert briefing["A47"].value == "Check corridor lighting"
-        assert workbook["Project RA"]["B5"].value == "Rina"
-        assert workbook["Project RA"]["E6"].value == "Lamp inspection"
-        assert "Daily Public Area" not in workbook.sheetnames
-        assert "Project Public Area" not in workbook.sheetnames
-        workbook_text = " ".join(
-            str(cell.value)
-            for sheet in workbook.worksheets
-            for row in sheet.iter_rows()
-            for cell in row
-            if cell.value is not None
-        ).lower()
-        assert "bon vivo" not in workbook_text
-        assert "daily pa" not in workbook_text
-        assert workbook["Public Area Project"]["C4"].value == "Brushing area loading dock & cleaning gutter"
-        assert workbook["Public Area Project"]["D4"].value is None
+        assert briefing["A28"].value == "Rina"
+        assert briefing["B28"].value == "Lamp inspection"
+        assert briefing["C28"].value == "Floor 5"
+        assert briefing["D28"].value == "18 Room — Open"
+        assert workbook["PA Matrix"]["C4"].value == "Brushing area loading dock & cleaning gutter"
+        assert workbook["PA Matrix"]["D4"].value is None
+        assert "Daily PA" in workbook.sheetnames
         with ZipFile(BytesIO(exported)) as archive:
             namespace = {
                 "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
@@ -865,10 +857,8 @@ class TestDailyRoomCost:
                 sheet.attrib["name"]: targets[sheet.attrib[f"{{{namespace['office']}}}id"]].lstrip("/")
                 for sheet in workbook_xml.findall("main:sheets/main:sheet", namespace)
             }
-            checklist_xml = archive.read(sheet_paths["Public Area Project"])
-            ra_xml = archive.read(sheet_paths["Project RA"])
-        assert b"x14:conditionalFormattings" in checklist_xml
-        assert b"x14:conditionalFormattings" not in ra_xml
+            matrix_xml = archive.read(sheet_paths["PA Matrix"])
+        assert b"x14:conditionalFormattings" in matrix_xml
         room_cost = workbook["Room Cost MTD"]
         daily_row = 4 + briefing_date.day
         assert room_cost.cell(daily_row, 2).value == 0.9
