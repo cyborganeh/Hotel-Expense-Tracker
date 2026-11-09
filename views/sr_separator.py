@@ -283,24 +283,7 @@ def render_sr_separator() -> None:
         show_validation_banner([str(exc)], level="error")
 
     _render_room_cost_uploader(
-        section="Daily Room Cost Excel",
-        prefix="room_cost",
-        uploader_label="Upload daily costs (.xlsx)",
-        help_text="Required columns: Date, Room Nights, Water, Electricity, and Linen Laundry.",
-        parser_fn=room_cost.parse_daily_room_cost_excel,
-        duplicate_warning="Data exists for",
-        replace_checkbox_label="Confirm replacement for these dates",
-        save_button_label="Save Daily Costs",
-        success_msg_fn=lambda r: f"Saved {len(r)} daily row(s).",
-        caption_fn=lambda r: f"Validated {len(r)} row(s) for {selected_month}.",
-        error_prefix="Daily room-cost Excel",
-        empty_caption=f"{len(saved_daily_costs)} saved daily row(s) for {selected_month}.",
-        saved_daily_costs=saved_daily_costs,
-        selected_month=selected_month,
-    )
-
-    _render_room_cost_uploader(
-        section="Night Audit Occupancy & Room Sold",
+        section="DSR",
         prefix="night_audit",
         uploader_label="Upload Night Audit Report (.xlsx)",
         help_text="Extracts occupancy and room sold by date. Existing cost values are preserved.",

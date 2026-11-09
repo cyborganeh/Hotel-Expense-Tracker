@@ -136,14 +136,76 @@ def parse_daily_room_cost_excel(source, month: str) -> pd.DataFrame:
     return _normalise_daily_frame(frame, month)
 
 
+def _as_date(value) -> Optional[str]:
+    """Coerce a cell value to a 'YYYY-MM-DD' string, or None when it is not a date."""
+    if value is None:
+        return None
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return pd.Timestamp(value).strftime("%Y-%m-%d")
+    parsed = pd.to_datetime(value, errors="coerce", format="mixed")
+    if pd.isna(parsed):
+        return None
+    return parsed.strftime("%Y-%m-%d")
+
+def _dsr_daily_row(rows) -> Optional[dict]:
+    """Read one DSR per-day sheet from its materialized rows.
+
+    Layout: DATE at row 5 col 6, TODAY ROOM SOLD at row with col-1 label
+    'ROOM SOLD' col 2, TODAY ROOM OCCUPANCY at the '%' label row col 2.
+    """
+    def cell(row: int, column: int):
+        if 1 <= row <= len(rows) and 1 <= column <= len(rows[row - 1]):
+            return rows[row - 1][column - 1]
+        return None
+
+    def label(row: int) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(cell(row, 1) or "").lower())
+
+    row_room_sold = next(
+        (r for r in range(1, len(rows) + 1) if label(r) == "roomsold"), None
+    )
+    row_occupancy = next(
+        (r for r in range(1, len(rows) + 1) if label(r) == "roomoccupancy"), None
+    )
+    if row_room_sold is None or row_occupancy is None:
+        return None
+
+    date_value = _as_date(cell(5, 6))
+    room_sold = cell(row_room_sold, 2)
+    occupancy = cell(row_occupancy, 2)
+    if date_value is None or room_sold is None or occupancy is None:
+        return None
+    if isinstance(occupancy, str):
+        return None
+    if 0 < occupancy <= 1:
+        occupancy = occupancy * 100
+    return {
+        "Date": date_value,
+        "Occupancy": occupancy,
+        "Room_Nights": room_sold,
+    }
+
 def parse_night_audit_report(source, month: Optional[str] = None) -> pd.DataFrame:
-    """Extract date, occupancy, and expected rooms occupied from a Night Audit report."""
+    """Extract daily occupancy and room sold from a Night Audit / DSR workbook.
+
+    Supports two layouts:
+    1. DSR daily sheets: one sheet per day with DATE (F5), ROOM SOLD (B row), and
+       ROOM OCCUPANCY (B row); today's column "TODAY" holds the daily value.
+    2. Header-based rows: DATE / EXP OCC or ROOM SOLD / OCC (%) columns.
+    """
     workbook = openpyxl.load_workbook(source, data_only=True, read_only=True)
     try:
+        records = []
         for worksheet in workbook.worksheets:
+            sheet_rows = list(worksheet.iter_rows(values_only=True))
+            dsr_row = _dsr_daily_row(sheet_rows)
+            if dsr_row is not None:
+                records.append(dsr_row)
+                continue
+
             header_row = None
             columns = {}
-            for row_idx, values in enumerate(worksheet.iter_rows(values_only=True), 1):
+            for row_idx, values in enumerate(sheet_rows, 1):
                 labels = {
                     re.sub(r"[^a-z0-9]", "", str(value).strip().lower()): col_idx
                     for col_idx, value in enumerate(values)
@@ -163,17 +225,11 @@ def parse_night_audit_report(source, month: Optional[str] = None) -> pd.DataFram
             if header_row is None:
                 continue
 
-            records = []
-            for values in worksheet.iter_rows(min_row=header_row + 1, values_only=True):
+            for values in sheet_rows[header_row:]:
                 date_value = values[columns["Date"]] if columns["Date"] < len(values) else None
-                if isinstance(date_value, datetime):
-                    parsed_date = pd.Timestamp(date_value).strftime("%Y-%m-%d")
-                else:
-                    parsed = pd.to_datetime(date_value, errors="coerce", format="mixed")
-                    if pd.isna(parsed):
-                        continue
-                    parsed_date = parsed.strftime("%Y-%m-%d")
-
+                parsed_date = _as_date(date_value)
+                if parsed_date is None:
+                    continue
                 room_sold = values[columns["Room_Nights"]] if columns["Room_Nights"] < len(values) else None
                 occupancy = values[columns["Occupancy"]] if columns["Occupancy"] < len(values) else None
                 if room_sold is None or occupancy is None:
@@ -182,16 +238,16 @@ def parse_night_audit_report(source, month: Optional[str] = None) -> pd.DataFram
                     "Date": parsed_date,
                     "Occupancy": occupancy,
                     "Room_Nights": room_sold,
-                    "Water": pd.NA,
-                    "Electricity": pd.NA,
-                    "Linen_Laundry": pd.NA,
                 })
-            if records:
-                detected_month = month or records[0]["Date"][:7]
-                return _normalise_daily_frame(
-                    pd.DataFrame(records), detected_month, allow_missing_expenses=True
-                )
-        raise ValueError("Could not find DATE, EXP OCC/ROOM SOLD, and OCC (%) columns in the workbook.")
+
+        if records:
+            frame = pd.DataFrame(records)
+            frame["Water"] = pd.NA
+            frame["Electricity"] = pd.NA
+            frame["Linen_Laundry"] = pd.NA
+            detected_month = month or str(frame["Date"].iloc[0])[:7]
+            return _normalise_daily_frame(frame, detected_month, allow_missing_expenses=True)
+        raise ValueError("Could not find DATE, ROOM SOLD, and OCC (%) data in the workbook.")
     finally:
         workbook.close()
 

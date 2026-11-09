@@ -36,7 +36,7 @@ From the SR Separator, choose a calendar month and upload an `.xlsx` workbook wi
 
 Existing October 2026 operational data can be copied into SQLite with `room_cost.migrate_existing_data_to_database(month, source_files)`. This imports saved daily room costs and archives non-empty rows from selected Excel workbooks. Imports are idempotent by file content hash. Source workbooks and legacy JSON files remain unchanged; the database is stored at `~/.hotel-expense-tracker/room_cost/hotel_data.sqlite3` by default.
 
-Use **Night Audit Occupancy & Room Sold** in the SR Separator to import a Night Audit `.xlsx` report. The importer reads `DATE`, `EXP OCC`, and `OCC (%)`; existing water, electricity, and laundry amounts are preserved when Night Audit rows are merged. Dates without utility/laundry amounts remain visibly incomplete until daily cost data is uploaded.
+Use **DSR** in the SR Separator to import a Night Audit `.xlsx` report. The importer reads `DATE`, `EXP OCC`, and `OCC (%)`; existing water, electricity, and laundry amounts are preserved when Night Audit rows are merged. Dates without utility/laundry amounts remain visibly incomplete until daily cost data is uploaded.
 
 Use **Energy Cost** to import daily electricity and water from a workbook with `Tanggal`, `Penggunaan Listrik`, and `Penggunaan Air` columns. Day numbers such as `1` through `31` are interpreted in the selected month. When a date has no room-sold record yet, its imported utility values are saved while room nights remain blank; they are not treated as zero.
 
