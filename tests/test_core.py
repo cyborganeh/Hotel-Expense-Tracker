@@ -202,6 +202,35 @@ class TestReconcileMonthlyExpenses:
         assert paper_row.iloc[0]["Budget"] == 4300000.0
         assert paper_row.iloc[0]["Status"] == "Under Budget"
 
+    def test_duplicate_is_rows_pick_row_matching_actual(self):
+        """When the IS repeats a line item, pick the row whose Actual matches DTB spend."""
+        import pandas as pd
+        dtb_df = pd.DataFrame([
+            {
+                "Date": "2026-10-01",
+                "Account_Code": "0352200",
+                "Account_Name": "Guest Supplies",
+                "Category": "Guest Supplies",
+                "Ref": "GDC/OUT-1",
+                "Source": "DTB",
+                "JRNL": "GL",
+                "Partner": "Vendor",
+                "Description": "Cleo 330 Ml",
+                "Net_Amount": 38683877.0,
+            }
+        ])
+        # Stale first block (budget 10M) then the real block (budget 50M)
+        is_df = pd.DataFrame([
+            {"Description": "Guest Supplies", "Budget": 10000000.0, "Actual": 10415610.0,
+             "Ratio_Pct": 0.0, "Is_Subtotal": False, "Department": "Room Division", "Group": "Other Expenses"},
+            {"Description": "Guest Supplies", "Budget": 50094820.0, "Actual": 38683877.0,
+             "Ratio_Pct": 0.0, "Is_Subtotal": False, "Department": "Room Division", "Group": "Other Expenses"},
+        ])
+        result = reconcile_monthly_expenses(dtb_df, is_df, pd.DataFrame())
+        row = result["category_summary"]
+        row = row[row["Category"] == "Guest Supplies"]
+        assert row.iloc[0]["Budget"] == 50094820.0
+
 
 # ---------------------------------------------------------------------------
 # create_separated_excel tests

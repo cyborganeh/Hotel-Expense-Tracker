@@ -215,7 +215,14 @@ def reconcile_monthly_expenses(
                     )]
             
             if not match.empty:
-                m_row = match.iloc[0]
+                # Income Statement templates sometimes repeat a line item in two
+                # blocks (e.g. a stale/partial copy above the real one). Pick the
+                # row whose Actual best matches the DTB spend, else the largest
+                # budget, instead of blindly taking the first match.
+                if len(match) > 1:
+                    m_row = match.loc[(match['Actual'] - actual_spent).abs().idxmin()]
+                else:
+                    m_row = match.iloc[0]
                 budget = float(m_row['Budget'])
                 is_actual = float(m_row['Actual'])
                 is_ratio = float(m_row['Ratio_Pct'])
