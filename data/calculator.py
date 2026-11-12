@@ -63,6 +63,159 @@ def merge_daily_room_costs(
     return combined.sort_values("Date").reset_index(drop=True)
 
 
+def calculate_per_room_metrics(
+    cat_df: pd.DataFrame,
+    item_df: pd.DataFrame,
+    room_nights: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Add per-room and per-100-room ratios to category and item summaries.
+
+    Normalizes spend and item usage by room sold so months with different
+    occupancy stay comparable. Returns NaN ratios when room_nights <= 0.
+    """
+    categories = cat_df.copy() if cat_df is not None else pd.DataFrame()
+    items = item_df.copy() if item_df is not None else pd.DataFrame()
+    category_columns = ["Actual_Per_Room", "Budget_Per_Room", "Variance_Per_Room"]
+    item_columns = ["Qty_Per_100_Rooms", "Cost_Per_Room"]
+
+    if room_nights <= 0:
+        for frame, columns in ((categories, category_columns), (items, item_columns)):
+            for column in columns:
+                frame[column] = float("nan")
+        return categories, items
+
+    if not categories.empty:
+        categories["Actual_Per_Room"] = categories["Actual"] / room_nights
+        categories["Budget_Per_Room"] = categories["Budget"] / room_nights
+        categories["Variance_Per_Room"] = categories["Variance_IDR"] / room_nights
+    if not items.empty:
+        items["Qty_Per_100_Rooms"] = items["Total_Qty"] / room_nights * 100.0
+        items["Cost_Per_Room"] = items["Total_Amount"] / room_nights
+    return categories, items
+
+def calculate_per_room_trend(
+    monthly_inputs: list[tuple[str, pd.DataFrame, int]],
+) -> pd.DataFrame:
+    """Build a per-room trend across months.
+
+    monthly_inputs: chronological list of (month_label, category_summary_df,
+    room_nights). Returns one row per month with spend, budget, and per-room
+    ratios. Ratios are NaN when room_nights <= 0.
+    """
+    rows = []
+    for label, cat_df, room_nights in monthly_inputs:
+        has_data = cat_df is not None and not cat_df.empty
+        actual = float(cat_df["Actual"].sum()) if has_data else 0.0
+        budget = float(cat_df["Budget"].sum()) if has_data else 0.0
+        variance = actual - budget
+        valid = room_nights > 0
+        rows.append({
+            "Month": label,
+            "Room_Nights": int(room_nights),
+            "Actual": actual,
+            "Budget": budget,
+            "Variance_IDR": variance,
+            "Actual_Per_Room": actual / room_nights if valid else float("nan"),
+            "Budget_Per_Room": budget / room_nights if valid else float("nan"),
+            "Variance_Per_Room": variance / room_nights if valid else float("nan"),
+        })
+    return pd.DataFrame(rows)
+
+def detect_usage_spikes(
+    item_frames: list[tuple[str, pd.DataFrame]],
+    room_nights_by_month: dict[str, int],
+    threshold_pct: float = 25.0,
+    lookback: int = 3,
+) -> pd.DataFrame:
+    """Flag items whose usage per 100 rooms rose above their trailing average.
+
+    item_frames must be chronological (oldest first). The latest month is
+    compared against the mean of up to `lookback` preceding months. Items with
+    no baseline usage are skipped because there is nothing to compare against.
+    """
+    columns = [
+        "Category", "Item_Name", "Unit", "Latest_Month",
+        "Latest_Qty_Per_100", "Baseline_Qty_Per_100", "Change_Pct", "Status",
+    ]
+    records = []
+    for label, item_df in item_frames:
+        room_nights = room_nights_by_month.get(label, 0)
+        if item_df is None or item_df.empty or room_nights <= 0:
+            continue
+        frame = item_df[["Category", "Item_Name", "Unit", "Total_Qty"]].copy()
+        frame["Month"] = label
+        frame["Qty_Per_100_Rooms"] = frame["Total_Qty"] / room_nights * 100.0
+        records.append(frame)
+    if len(records) < 2:
+        return pd.DataFrame(columns=columns)
+
+    long_df = pd.concat(records, ignore_index=True)
+    latest_month = records[-1]["Month"].iloc[0]
+    baseline_months = [frame["Month"].iloc[0] for frame in records[-(lookback + 1):-1]]
+
+    latest = long_df[long_df["Month"] == latest_month]
+    baseline = (
+        long_df[long_df["Month"].isin(baseline_months)]
+        .groupby(["Category", "Item_Name", "Unit"], as_index=False)["Qty_Per_100_Rooms"]
+        .mean()
+        .rename(columns={"Qty_Per_100_Rooms": "Baseline_Qty_Per_100"})
+    )
+    merged = latest.merge(baseline, on=["Category", "Item_Name", "Unit"], how="inner")
+    merged = merged[merged["Baseline_Qty_Per_100"] > 0].copy()
+    merged["Change_Pct"] = (
+        (merged["Qty_Per_100_Rooms"] - merged["Baseline_Qty_Per_100"])
+        / merged["Baseline_Qty_Per_100"] * 100.0
+    )
+    merged = merged[merged["Change_Pct"] >= threshold_pct]
+    merged = merged.rename(columns={
+        "Month": "Latest_Month",
+        "Qty_Per_100_Rooms": "Latest_Qty_Per_100",
+    })
+    merged["Status"] = "Usage spike"
+    merged = merged.sort_values("Change_Pct", ascending=False)
+    return merged[columns].reset_index(drop=True)
+
+def calculate_cpor(total_spend: float, daily_df: pd.DataFrame) -> dict:
+    """Combined cost per occupied room: ledger spend + utilities + linen.
+
+    Ledger spend already contains SR consumption, so utilities and linen are
+    the only additions. Components stay NaN when their daily inputs are missing.
+    """
+    result = {
+        "Room_Nights": 0,
+        "Ledger_Spend": float(total_spend),
+        "Utilities": float("nan"),
+        "Linen": float("nan"),
+        "Total_Cost": float("nan"),
+        "Cost_Per_Room": float("nan"),
+        "Ledger_Per_Room": float("nan"),
+        "Utilities_Per_Room": float("nan"),
+        "Linen_Per_Room": float("nan"),
+    }
+    if daily_df is None or daily_df.empty or "Room_Nights" not in daily_df.columns:
+        return result
+    room_nights = int(pd.to_numeric(daily_df["Room_Nights"], errors="coerce").sum())
+    if room_nights <= 0:
+        return result
+
+    water = pd.to_numeric(daily_df.get("Water"), errors="coerce")
+    electricity = pd.to_numeric(daily_df.get("Electricity"), errors="coerce")
+    linen = pd.to_numeric(daily_df.get("Linen_Laundry"), errors="coerce")
+    utilities = water.sum(min_count=1) + electricity.sum(min_count=1)
+    linen_total = linen.sum(min_count=1)
+    total = float(total_spend) + utilities + linen_total
+    result.update({
+        "Room_Nights": room_nights,
+        "Utilities": float(utilities),
+        "Linen": float(linen_total),
+        "Total_Cost": float(total),
+        "Cost_Per_Room": float(total) / room_nights,
+        "Ledger_Per_Room": float(total_spend) / room_nights,
+        "Utilities_Per_Room": float(utilities) / room_nights,
+        "Linen_Per_Room": float(linen_total) / room_nights,
+    })
+    return result
+
 def calculate_daily_room_costs(
     sr_df: pd.DataFrame,
     daily_df: pd.DataFrame,

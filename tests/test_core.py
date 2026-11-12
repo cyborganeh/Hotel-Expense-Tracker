@@ -923,6 +923,112 @@ class TestDailyRoomCost:
         assert workbook["Daily Linen Cost MTD"]["B35"].value == 3000
 
 
+class TestPerRoomMetrics:
+    def test_ratios_normalize_spend_and_item_usage(self):
+        from data.calculator import calculate_per_room_metrics
+
+        cat_df = pd.DataFrame([
+            {"Category": "Guest Supplies", "Actual": 1000000.0, "Budget": 800000.0, "Variance_IDR": 200000.0},
+        ])
+        item_df = pd.DataFrame([
+            {"Category": "Guest Supplies", "Item_Name": "Cleo 330ml", "Total_Qty": 500.0, "Total_Amount": 500000.0},
+        ])
+
+        cat_ratio, item_ratio = calculate_per_room_metrics(cat_df, item_df, 250)
+
+        assert cat_ratio.iloc[0]["Actual_Per_Room"] == 4000
+        assert cat_ratio.iloc[0]["Budget_Per_Room"] == 3200
+        assert cat_ratio.iloc[0]["Variance_Per_Room"] == 800
+        assert item_ratio.iloc[0]["Qty_Per_100_Rooms"] == 200
+        assert item_ratio.iloc[0]["Cost_Per_Room"] == 2000
+
+    def test_zero_room_nights_yields_nan_ratios(self):
+        from data.calculator import calculate_per_room_metrics
+
+        cat_df = pd.DataFrame([{"Category": "Guest Supplies", "Actual": 100.0, "Budget": 50.0, "Variance_IDR": 50.0}])
+        item_df = pd.DataFrame([{"Category": "Guest Supplies", "Item_Name": "Soap", "Total_Qty": 5.0, "Total_Amount": 10.0}])
+
+        cat_ratio, item_ratio = calculate_per_room_metrics(cat_df, item_df, 0)
+
+        assert pd.isna(cat_ratio.iloc[0]["Actual_Per_Room"])
+        assert pd.isna(item_ratio.iloc[0]["Qty_Per_100_Rooms"])
+
+class TestPerRoomTrendAndSpikes:
+    def test_trend_computes_per_room_ratios(self):
+        from data.calculator import calculate_per_room_trend
+
+        cat_a = pd.DataFrame([{"Category": "Guest Supplies", "Actual": 1000.0, "Budget": 800.0, "Variance_IDR": 200.0}])
+        cat_b = pd.DataFrame([{"Category": "Guest Supplies", "Actual": 2000.0, "Budget": 1600.0, "Variance_IDR": 400.0}])
+
+        trend = calculate_per_room_trend([("July 2026", cat_a, 100), ("August 2026", cat_b, 0)])
+
+        assert trend["Month"].tolist() == ["July 2026", "August 2026"]
+        assert trend.iloc[0]["Actual_Per_Room"] == 10
+        assert trend.iloc[0]["Budget_Per_Room"] == 8
+        assert pd.isna(trend.iloc[1]["Actual_Per_Room"])
+
+    def test_spikes_flag_items_above_threshold(self):
+        from data.calculator import detect_usage_spikes
+
+        def frame(qty):
+            return pd.DataFrame([{"Category": "Guest Supplies", "Item_Name": "Cleo 330ml", "Unit": "BTL", "Total_Qty": qty}])
+
+        spikes = detect_usage_spikes(
+            [("June 2026", frame(100.0)), ("July 2026", frame(100.0)), ("August 2026", frame(300.0))],
+            {"June 2026": 100, "July 2026": 100, "August 2026": 100},
+        )
+
+        assert len(spikes) == 1
+        assert spikes.iloc[0]["Latest_Month"] == "August 2026"
+        assert spikes.iloc[0]["Change_Pct"] == 200
+        assert spikes.iloc[0]["Status"] == "Usage spike"
+
+    def test_spikes_need_two_months(self):
+        from data.calculator import detect_usage_spikes
+
+        frame = pd.DataFrame([{"Category": "Guest Supplies", "Item_Name": "Soap", "Unit": "PCS", "Total_Qty": 10.0}])
+        spikes = detect_usage_spikes([("August 2026", frame)], {"August 2026": 100})
+
+        assert spikes.empty
+
+    def test_cpor_adds_utilities_and_linen(self):
+        from data.calculator import calculate_cpor
+
+        daily = pd.DataFrame([
+            {"Room_Nights": 50, "Water": 100.0, "Electricity": 200.0, "Linen_Laundry": 50.0},
+            {"Room_Nights": 50, "Water": 100.0, "Electricity": 200.0, "Linen_Laundry": 50.0},
+        ])
+
+        cpor = calculate_cpor(1000.0, daily)
+
+        assert cpor["Room_Nights"] == 100
+        assert cpor["Utilities"] == 600
+        assert cpor["Linen"] == 100
+        assert cpor["Total_Cost"] == 1700
+        assert cpor["Cost_Per_Room"] == 17
+
+    def test_cpor_without_daily_data_is_nan(self):
+        from data.calculator import calculate_cpor
+
+        cpor = calculate_cpor(1000.0, pd.DataFrame())
+
+        assert cpor["Room_Nights"] == 0
+        assert pd.isna(cpor["Cost_Per_Room"])
+
+class TestMonthOrdering:
+    def test_month_key_from_label(self):
+        from data.months import month_key_from_label
+
+        assert month_key_from_label("August 2026") == "2026-08"
+        assert month_key_from_label("not a month") is None
+
+    def test_sorted_month_folders_is_chronological(self):
+        from data.months import sorted_month_folders
+
+        ordered = sorted_month_folders({"August 2026": "/b", "June 2026": "/a", "July 2026": "/c"})
+
+        assert [label for label, _, _ in ordered] == ["June 2026", "July 2026", "August 2026"]
+
 class TestNormalizeSRLabels:
     def test_replaces_undefined_labels(self):
         df = pd.DataFrame([

@@ -11,12 +11,21 @@ import parser
 import matcher
 import exporter
 import ui_components
+import room_cost
+from data.calculator import (
+    calculate_per_room_metrics,
+    calculate_per_room_trend,
+    calculate_cpor,
+    detect_usage_spikes,
+)
 from ui.formatting import format_idr, format_pct, show_validation_banner
 from data.months import (
     get_default_data_dir,
     discover_month_folders,
     cached_reconcile_month,
     combine_month_datasets,
+    month_key_from_label,
+    sorted_month_folders,
 )
 from ui.security import (
     sanitize_html,
@@ -26,6 +35,7 @@ from ui.security import (
     safe_extract_zip,
     validate_data_dir,
     SecurityError,
+    MAX_ZIP_UPLOAD_SIZE,
 )
 
 
@@ -189,34 +199,79 @@ def _load_uploaded_files() -> tuple:
     return None, ""
 
 
+def _iter_dirs_deepest_first(root: str) -> list:
+    """Return every directory under root, deepest first.
+
+    Deepest-first means a real month folder wins over a wrapper folder that
+    merely contains it.
+    """
+    dirs = [root]
+    for current, subdirs, _ in os.walk(root):
+        dirs.extend(os.path.join(current, sub) for sub in subdirs)
+    dirs.sort(key=lambda path: path.count(os.sep), reverse=True)
+    return dirs
+
 def _load_zip_months() -> tuple:
-    """Load data from a ZIP archive of month folders."""
-    zip_file = st.sidebar.file_uploader("Upload ZIP of month folders", type=["zip"])
-    if not zip_file:
+    """Load data from one or more ZIP archives of month folders."""
+    zip_files = st.sidebar.file_uploader(
+        "Upload ZIP of month folders",
+        type=["zip"],
+        accept_multiple_files=True,
+        help=(
+            f"Max {MAX_ZIP_UPLOAD_SIZE // (1024 * 1024)} MB per ZIP. Upload one ZIP per month, "
+            "or a single ZIP holding several month folders."
+        ),
+    )
+    if not zip_files:
         return None, ""
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        try:
-            validate_upload_size(zip_file)
-            safe_extract_zip(zip_file, tmpdir)
-        except SecurityError as exc:
-            st.error(str(exc))
-            return None, ""
-        month_dirs = [os.path.join(tmpdir, d) for d in os.listdir(tmpdir) if os.path.isdir(os.path.join(tmpdir, d))]
         month_data = {}
-        for month_dir in month_dirs:
-            raw_label = os.path.basename(month_dir)
-            month_label = parser.infer_month_label(raw_label, default=raw_label)
-            files = parser.find_month_files(month_dir)
-            if not files['dtb']:
-                st.warning(f"DTB not found in {month_label}, skipping.")
+        seen_dtb = set()
+        for idx, zip_file in enumerate(zip_files):
+            # Each archive gets its own subdir so same-named month folders cannot collide.
+            archive_dir = os.path.join(tmpdir, f"archive_{idx}")
+            os.makedirs(archive_dir, exist_ok=True)
+            try:
+                validate_upload_size(zip_file, max_size=MAX_ZIP_UPLOAD_SIZE)
+                safe_extract_zip(zip_file, archive_dir)
+            except SecurityError as exc:
+                st.error(f"{zip_file.name}: {exc}")
                 continue
-            with st.spinner(f"Processing {month_label}..."):
-                dtb_df = parser.parse_detail_trial_balance(files['dtb'])
-                is_df = parser.parse_income_statement(files['is_mtd']) if files['is_mtd'] else pd.DataFrame()
-                cons_df = parser.parse_consumption_report(files['consumption']) if files['consumption'] else pd.DataFrame()
-                month_data[month_label] = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+            except Exception as exc:  # corrupt or non-ZIP payload
+                st.error(f"{zip_file.name}: could not read ZIP ({exc}).")
+                continue
+
+            archive_months = 0
+            for month_dir in _iter_dirs_deepest_first(archive_dir):
+                files = parser.find_month_files(month_dir)
+                dtb_path = files['dtb']
+                if not dtb_path:
+                    continue
+                real_dtb = os.path.realpath(dtb_path)
+                if real_dtb in seen_dtb:
+                    continue
+                raw_label = os.path.basename(month_dir) or zip_file.name
+                month_label = parser.infer_month_label(raw_label, default=raw_label)
+                if month_label in month_data:
+                    st.warning(f"Duplicate month '{month_label}' in {zip_file.name}, skipping.")
+                    continue
+                seen_dtb.add(real_dtb)
+                with st.spinner(f"Processing {month_label}..."):
+                    dtb_df = parser.parse_detail_trial_balance(dtb_path)
+                    is_df = parser.parse_income_statement(files['is_mtd']) if files['is_mtd'] else pd.DataFrame()
+                    cons_df = parser.parse_consumption_report(files['consumption']) if files['consumption'] else pd.DataFrame()
+                    month_data[month_label] = matcher.reconcile_monthly_expenses(dtb_df, is_df, cons_df)
+                archive_months += 1
+
+            if not archive_months:
+                st.warning(
+                    f"{zip_file.name}: no Detail Trial Balance found. "
+                    "Put each month's .xlsx files in its own folder inside the ZIP."
+                )
+
         if month_data:
+            st.sidebar.caption(f"Loaded {len(month_data)} month(s): {', '.join(month_data)}")
             return combine_month_datasets(month_data)
     return None, ""
 
@@ -544,12 +599,26 @@ def _render_budget_variance(cat_df):
 
 
 def _render_mom_comparison(folders: dict, selected_month_name: str, reconciled_data: dict):
-    """Render Month-over-Month Comparison tab."""
+    """Render Month-over-Month Comparison tab.
+
+    Compares the selected month (or, when nothing is selected, the latest
+    chronological month) against the immediately preceding month — never an
+    arbitrary pair further back in time.
+    """
     st.subheader("Month-over-Month Spending Comparison")
-    mom_folder_pairs = list(folders.items())
-    if len(mom_folder_pairs) >= 2:
-        mom_current_label, mom_current_dir = mom_folder_pairs[0]
-        mom_previous_label, mom_previous_dir = mom_folder_pairs[1]
+    sorted_months = sorted_month_folders(folders)  # (label, path, key) chronological
+
+    mom_current_label = mom_current_dir = None
+    mom_previous_label = mom_previous_dir = None
+    mom_current_name = mom_previous_name = None
+
+    if len(sorted_months) >= 2:
+        labels = [label for label, _, _ in sorted_months]
+        sel_idx = next((i for i, label in enumerate(labels) if label == selected_month_name), -1)
+        cur_idx = sel_idx if sel_idx >= 1 else len(sorted_months) - 1
+        prev_idx = cur_idx - 1
+        mom_current_label, mom_current_dir, _ = sorted_months[cur_idx]
+        mom_previous_label, mom_previous_dir, _ = sorted_months[prev_idx]
         mom_current_name = parser.infer_month_label(mom_current_label)
         mom_previous_name = parser.infer_month_label(mom_previous_label)
         st.markdown(
@@ -557,9 +626,6 @@ def _render_mom_comparison(folders: dict, selected_month_name: str, reconciled_d
             f"and **{mom_previous_name}**."
         )
     else:
-        mom_current_label = mom_previous_label = None
-        mom_current_name = mom_previous_name = None
-        mom_current_dir = mom_previous_dir = None
         ui_components.render_empty_state("Not enough month folders configured for MoM comparison.")
 
     if mom_current_dir and mom_previous_dir:
@@ -587,20 +653,22 @@ def _render_mom_comparison(folders: dict, selected_month_name: str, reconciled_d
             if cur_rec['metrics']['transaction_count'] == 0 or j_rec['metrics']['transaction_count'] == 0:
                 ui_components.render_empty_state("Previous month data not found for MoM comparison.")
             else:
-                a_cat = cur_rec['category_summary'][['Category', 'Actual']].rename(columns={'Actual': 'August_Actual'})
-                j_cat = j_rec['category_summary'][['Category', 'Actual']].rename(columns={'Actual': 'July_Actual'})
+                cur_col = "Cur_Actual"
+                prev_col = "Prev_Actual"
+                a_cat = cur_rec['category_summary'][['Category', 'Actual']].rename(columns={'Actual': cur_col})
+                j_cat = j_rec['category_summary'][['Category', 'Actual']].rename(columns={'Actual': prev_col})
 
                 mom_df = pd.merge(a_cat, j_cat, on="Category", how="outer").fillna(0.0)
-                mom_df['MoM_Diff'] = mom_df['August_Actual'] - mom_df['July_Actual']
-                mom_df['MoM_Pct'] = (mom_df['MoM_Diff'] / mom_df['July_Actual'] * 100.0).replace([np.inf, -np.inf], 0.0).fillna(0.0)
-                mom_df = mom_df.sort_values(by="August_Actual", ascending=False)
+                mom_df['MoM_Diff'] = mom_df[cur_col] - mom_df[prev_col]
+                mom_df['MoM_Pct'] = (mom_df['MoM_Diff'] / mom_df[prev_col] * 100.0).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+                mom_df = mom_df.sort_values(by=cur_col, ascending=False)
 
-                july_total = j_rec['metrics']['total_spent']
-                net_mom = cur_rec['metrics']['total_spent'] - july_total
-                net_mom_pct = (net_mom / july_total * 100.0) if july_total > 0 else 0
+                prev_total = j_rec['metrics']['total_spent']
+                net_mom = cur_rec['metrics']['total_spent'] - prev_total
+                net_mom_pct = (net_mom / prev_total * 100.0) if prev_total > 0 else 0
                 ui_components.render_kpi_row([
                     {'label': (mom_current_name + ' Total').upper(), 'value': format_idr(cur_rec['metrics']['total_spent']), 'delta': None, 'show_arrow': False},
-                    {'label': ((mom_previous_name or "Previous Month") + ' Total').upper(), 'value': format_idr(july_total), 'delta': None, 'show_arrow': False},
+                    {'label': ((mom_previous_name or "Previous Month") + ' Total').upper(), 'value': format_idr(prev_total), 'delta': None, 'show_arrow': False},
                     {'label': 'MOM SPENDING SHIFT', 'value': format_idr(net_mom),
                      'delta': f"{net_mom_pct:+.1f}% vs previous month",
                      'delta_tone': 'neg' if net_mom > 0 else 'pos', 'show_arrow': False},
@@ -611,8 +679,8 @@ def _render_mom_comparison(folders: dict, selected_month_name: str, reconciled_d
                 fig_mom = ui_components.themed_comparison_bar(
                     mom_top['Category'].tolist(),
                     [
-                        {'name': mom_previous_name, 'values': mom_top['July_Actual'].tolist()},
-                        {'name': mom_current_name, 'values': mom_top['August_Actual'].tolist()},
+                        {'name': mom_previous_name, 'values': mom_top[prev_col].tolist()},
+                        {'name': mom_current_name, 'values': mom_top[cur_col].tolist()},
                     ],
                     orientation='v',
                     height=380,
@@ -620,8 +688,8 @@ def _render_mom_comparison(folders: dict, selected_month_name: str, reconciled_d
                 st.plotly_chart(fig_mom, width="stretch")
 
                 mom_display = mom_df.copy()
-                mom_display['August_Actual'] = mom_display['August_Actual'].apply(format_idr)
-                mom_display['July_Actual'] = mom_display['July_Actual'].apply(format_idr)
+                mom_display[cur_col] = mom_display[cur_col].apply(format_idr)
+                mom_display[prev_col] = mom_display[prev_col].apply(format_idr)
                 mom_display['MoM_Diff'] = mom_display['MoM_Diff'].apply(format_idr)
                 mom_display['MoM_Pct'] = mom_display['MoM_Pct'].apply(format_pct)
 
@@ -631,12 +699,315 @@ def _render_mom_comparison(folders: dict, selected_month_name: str, reconciled_d
                     height=350,
                     column_config={
                         "Category": st.column_config.TextColumn("Expense Category", width="large"),
-                        "July_Actual": st.column_config.TextColumn(mom_previous_name),
-                        "August_Actual": st.column_config.TextColumn(mom_current_name),
+                        prev_col: st.column_config.TextColumn(mom_previous_name),
+                        cur_col: st.column_config.TextColumn(mom_current_name),
                         "MoM_Diff": st.column_config.TextColumn("MoM Change (IDR)"),
                         "MoM_Pct": st.column_config.TextColumn("MoM Change (%)"),
                     }
                 )
+
+
+def _load_room_nights(month_label: str) -> int:
+    """Return saved room nights for a month label, or 0 when unavailable."""
+    month_key = month_key_from_label(month_label)
+    if not month_key:
+        return 0
+    try:
+        daily = room_cost.load_daily_room_costs(month_key)
+    except ValueError:
+        return 0
+    if daily.empty:
+        return 0
+    return int(pd.to_numeric(daily["Room_Nights"], errors="coerce").sum())
+
+
+def _render_per_room_ratios(cat_df, item_df, selected_month_name: str, folders: dict):
+    """Render per-room normalization tab (spend and item usage per room sold)."""
+    st.subheader("Per-Room Ratios (Occupancy-Normalized)")
+    st.markdown(
+        "Raw monthly spend is not comparable across months with different occupancy. "
+        "Enter room sold and occupancy to normalize spend and item usage per occupied room."
+    )
+
+    month_key = month_key_from_label(selected_month_name)
+    saved_daily = pd.DataFrame()
+    if month_key:
+        try:
+            saved_daily = room_cost.load_daily_room_costs(month_key)
+        except ValueError:
+            saved_daily = pd.DataFrame()
+
+    saved_room_nights = int(saved_daily["Room_Nights"].sum()) if not saved_daily.empty else 0
+    saved_occupancy = (
+        float(saved_daily["Occupancy"].mean())
+        if not saved_daily.empty and saved_daily["Occupancy"].notna().any()
+        else 0.0
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        room_nights = st.number_input(
+            "Room Sold (room nights)",
+            min_value=0,
+            value=saved_room_nights,
+            step=1,
+            key=f"per_room_nights_{selected_month_name}",
+            help="Prefilled from saved daily room costs when available.",
+        )
+    with col2:
+        occupancy = st.number_input(
+            "Occupancy (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=round(saved_occupancy, 2),
+            step=0.1,
+            format="%.2f",
+            key=f"per_room_occupancy_{selected_month_name}",
+        )
+
+    if room_nights <= 0:
+        ui_components.render_empty_state(
+            "Enter room sold to calculate per-room ratios.",
+            "Room sold is the denominator for every ratio on this tab.",
+        )
+        return
+
+    cat_ratio, item_ratio = calculate_per_room_metrics(cat_df, item_df, room_nights)
+    total_actual = float(cat_ratio["Actual"].sum()) if not cat_ratio.empty else 0.0
+    total_budget = float(cat_ratio["Budget"].sum()) if not cat_ratio.empty else 0.0
+    total_variance = total_actual - total_budget
+    budget_per_room = total_budget / room_nights
+    actual_per_room = total_actual / room_nights
+
+    cpor = calculate_cpor(total_actual, saved_daily)
+
+    ui_components.render_kpi_row([
+        {'label': 'ROOM SOLD', 'value': f"{room_nights:,}",
+         'delta': f"Occupancy {occupancy:.2f}%", 'delta_tone': 'neutral', 'show_arrow': False},
+        {'label': 'SPEND / ROOM', 'value': format_idr(actual_per_room),
+         'delta': 'All reconciled categories', 'delta_tone': 'neutral', 'show_arrow': False},
+        {'label': 'BUDGET / ROOM (TARGET)', 'value': format_idr(budget_per_room),
+         'delta': 'Budget normalized by room sold', 'delta_tone': 'neutral', 'show_arrow': False},
+        {'label': 'VARIANCE / ROOM', 'value': format_idr(total_variance / room_nights),
+         'delta': 'Positive means over budget per room',
+         'delta_tone': 'neg' if total_variance > 0 else 'pos', 'show_arrow': False},
+    ])
+
+    st.markdown("#### Cost per Occupied Room (CPOR)")
+    st.caption(
+        "Ledger spend already includes SR consumption. Utilities and linen are added "
+        "from saved daily room costs, so this is the full cost of one occupied room."
+    )
+    if pd.isna(cpor["Cost_Per_Room"]):
+        ui_components.render_empty_state(
+            "Utilities and linen are not saved for this month yet.",
+            "Upload energy and laundry reports in the SR Separator to complete CPOR.",
+        )
+    else:
+        ui_components.render_kpi_row([
+            {'label': 'CPOR (TOTAL)', 'value': format_idr(cpor["Cost_Per_Room"]),
+             'delta': 'Ledger + utilities + linen per room',
+             'delta_tone': 'neutral', 'show_arrow': False},
+            {'label': 'LEDGER / ROOM', 'value': format_idr(cpor["Ledger_Per_Room"]),
+             'delta': 'Includes SR consumption', 'delta_tone': 'neutral', 'show_arrow': False},
+            {'label': 'UTILITIES / ROOM', 'value': format_idr(cpor["Utilities_Per_Room"]),
+             'delta': 'Water + electricity', 'delta_tone': 'neutral', 'show_arrow': False},
+            {'label': 'LINEN / ROOM', 'value': format_idr(cpor["Linen_Per_Room"]),
+             'delta': 'Linen laundry', 'delta_tone': 'neutral', 'show_arrow': False},
+        ])
+
+    if cat_ratio.empty:
+        ui_components.render_empty_state("No category data available for per-room ratios.")
+        return
+
+    st.markdown("#### Category Cost per Room Sold")
+    cat_display = cat_ratio[[
+        'Category', 'Actual', 'Actual_Per_Room', 'Budget_Per_Room',
+        'Variance_Per_Room', 'Status'
+    ]].copy()
+    cat_display = cat_display.sort_values(by='Actual_Per_Room', ascending=False)
+    cat_display['Actual'] = cat_display['Actual'].apply(format_idr)
+    for column in ['Actual_Per_Room', 'Budget_Per_Room', 'Variance_Per_Room']:
+        cat_display[column] = cat_display[column].apply(format_idr)
+    st.dataframe(
+        cat_display,
+        width="stretch",
+        height=380,
+        hide_index=True,
+        column_config={
+            "Category": st.column_config.TextColumn("Expense Category", width="large"),
+            "Actual": st.column_config.TextColumn("Actual (IDR)"),
+            "Actual_Per_Room": st.column_config.TextColumn("Actual / Room"),
+            "Budget_Per_Room": st.column_config.TextColumn("Budget / Room"),
+            "Variance_Per_Room": st.column_config.TextColumn("Variance / Room"),
+            "Status": st.column_config.TextColumn("Status", width="small"),
+        },
+    )
+
+    st.markdown("#### Item Usage per 100 Rooms")
+    st.caption(
+        "Usage intensity per 100 occupied rooms. Use this to spot items consumed faster "
+        "than occupancy explains — the usual driver of over-budget supplies."
+    )
+    if item_ratio.empty:
+        ui_components.render_empty_state("No item-level data available for usage ratios.")
+        return
+
+    item_display = item_ratio[[
+        'Category', 'Item_Name', 'Unit', 'Total_Qty',
+        'Qty_Per_100_Rooms', 'Cost_Per_Room', 'Total_Amount'
+    ]].copy()
+    item_display = item_display.sort_values(by='Qty_Per_100_Rooms', ascending=False)
+    item_display['Total_Qty'] = item_display['Total_Qty'].apply(lambda v: f"{v:,.0f}")
+    item_display['Qty_Per_100_Rooms'] = item_display['Qty_Per_100_Rooms'].apply(lambda v: f"{v:,.2f}")
+    item_display['Cost_Per_Room'] = item_display['Cost_Per_Room'].apply(format_idr)
+    item_display['Total_Amount'] = item_display['Total_Amount'].apply(format_idr)
+    st.dataframe(
+        item_display,
+        width="stretch",
+        height=420,
+        hide_index=True,
+        column_config={
+            "Category": st.column_config.TextColumn("Category", width="medium"),
+            "Item_Name": st.column_config.TextColumn("Item / Service", width="large"),
+            "Unit": st.column_config.TextColumn("Unit", width="small"),
+            "Total_Qty": st.column_config.TextColumn("Total Qty"),
+            "Qty_Per_100_Rooms": st.column_config.TextColumn("Qty / 100 Rooms"),
+            "Cost_Per_Room": st.column_config.TextColumn("Cost / Room"),
+            "Total_Amount": st.column_config.TextColumn("Total Spend (IDR)"),
+        },
+    )
+
+    csv_bytes = item_ratio.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Download Per-Room Ratios (CSV)",
+        data=csv_bytes,
+        file_name=f"Per_Room_Ratios_{selected_month_name.replace(' ', '_')}.csv",
+        mime="text/csv",
+    )
+
+    _render_per_room_trend(folders, selected_month_name, cat_df, item_df, room_nights)
+
+
+def _render_per_room_trend(folders, selected_month_name, cat_df, item_df, room_nights):
+    """Render cross-month per-room trend and usage-spike alerts."""
+    st.divider()
+    st.markdown("#### Per-Room Trend Across Months")
+    st.caption(
+        "Compares months on a per-room basis so occupancy swings do not distort the trend. "
+        "Months without saved room sold are excluded."
+    )
+
+    ordered = sorted_month_folders(folders)
+    if len(ordered) < 2:
+        ui_components.render_empty_state(
+            "At least two month folders are needed for a trend.",
+            "Add month folders with DTB files to the data directory.",
+        )
+        return
+
+    monthly_inputs = []
+    item_frames = []
+    room_nights_by_month = {}
+    for label, path, _ in ordered:
+        files = parser.find_month_files(path)
+        if not files["dtb"]:
+            continue
+        nights = _load_room_nights(label)
+        if nights <= 0:
+            continue
+        if label == selected_month_name:
+            month_cat, month_item = cat_df, item_df
+        else:
+            with st.spinner(f"Loading {label}..."):
+                month_data = cached_reconcile_month(
+                    files["dtb"], files["is_mtd"], files["consumption"], label
+                )
+            month_cat = month_data["category_summary"]
+            month_item = month_data["item_summary"]
+        monthly_inputs.append((label, month_cat, nights))
+        item_frames.append((label, month_item))
+        room_nights_by_month[label] = nights
+
+    if len(monthly_inputs) < 2:
+        ui_components.render_empty_state(
+            "Not enough months have saved room sold for a trend.",
+            "Save room sold per month in the SR Separator first.",
+        )
+        return
+
+    trend_df = calculate_per_room_trend(monthly_inputs)
+    latest = trend_df.iloc[-1]
+    previous = trend_df.iloc[-2]
+    delta_per_room = latest["Actual_Per_Room"] - previous["Actual_Per_Room"]
+    delta_pct = (
+        delta_per_room / previous["Actual_Per_Room"] * 100.0
+        if previous["Actual_Per_Room"] > 0 else 0.0
+    )
+    ui_components.render_kpi_row([
+        {'label': f'{latest["Month"].upper()} SPEND / ROOM', 'value': format_idr(latest["Actual_Per_Room"]),
+         'delta': f"{delta_pct:+.1f}% vs {previous['Month']}",
+         'delta_tone': 'neg' if delta_per_room > 0 else 'pos', 'show_arrow': False},
+        {'label': f'{previous["Month"].upper()} SPEND / ROOM', 'value': format_idr(previous["Actual_Per_Room"]),
+         'delta': f"{int(previous['Room_Nights']):,} room sold", 'delta_tone': 'neutral', 'show_arrow': False},
+        {'label': 'TARGET / ROOM', 'value': format_idr(latest["Budget_Per_Room"]),
+         'delta': 'Latest month budget per room', 'delta_tone': 'neutral', 'show_arrow': False},
+        {'label': 'GAP TO TARGET', 'value': format_idr(latest["Variance_Per_Room"]),
+         'delta': 'Positive means above target',
+         'delta_tone': 'neg' if latest["Variance_Per_Room"] > 0 else 'pos', 'show_arrow': False},
+    ])
+
+    fig_trend = ui_components.themed_comparison_bar(
+        trend_df["Month"].tolist(),
+        [
+            {'name': 'Actual / Room', 'values': trend_df["Actual_Per_Room"].tolist()},
+            {'name': 'Budget / Room', 'values': trend_df["Budget_Per_Room"].tolist()},
+        ],
+        orientation='v',
+        height=340,
+    )
+    st.plotly_chart(fig_trend, width="stretch")
+
+    trend_display = trend_df.copy()
+    for column in ["Actual", "Budget", "Variance_IDR", "Actual_Per_Room", "Budget_Per_Room", "Variance_Per_Room"]:
+        trend_display[column] = trend_display[column].apply(format_idr)
+    st.dataframe(trend_display, width="stretch", hide_index=True)
+
+    st.markdown("#### Usage Spike Alerts")
+    st.caption(
+        "Items whose usage per 100 rooms rose at least 25% above their trailing "
+        "3-month average. These are the items to question in the business review."
+    )
+    spikes = detect_usage_spikes(item_frames, room_nights_by_month)
+    if spikes.empty:
+        st.success("No item usage spikes detected against the trailing average.")
+        return
+
+    spike_display = spikes.copy()
+    spike_display["Latest_Qty_Per_100"] = spike_display["Latest_Qty_Per_100"].apply(lambda v: f"{v:,.2f}")
+    spike_display["Baseline_Qty_Per_100"] = spike_display["Baseline_Qty_Per_100"].apply(lambda v: f"{v:,.2f}")
+    spike_display["Change_Pct"] = spike_display["Change_Pct"].apply(lambda v: f"{v:+.1f}%")
+    st.dataframe(
+        spike_display,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Category": st.column_config.TextColumn("Category", width="medium"),
+            "Item_Name": st.column_config.TextColumn("Item / Service", width="large"),
+            "Unit": st.column_config.TextColumn("Unit", width="small"),
+            "Latest_Month": st.column_config.TextColumn("Month", width="small"),
+            "Latest_Qty_Per_100": st.column_config.TextColumn("Qty / 100 Rooms"),
+            "Baseline_Qty_Per_100": st.column_config.TextColumn("Trailing Avg"),
+            "Change_Pct": st.column_config.TextColumn("Change"),
+            "Status": st.column_config.TextColumn("Status", width="small"),
+        },
+    )
+    st.download_button(
+        label="📥 Download Usage Spike Alerts (CSV)",
+        data=spikes.to_csv(index=False).encode('utf-8'),
+        file_name=f"Usage_Spikes_{selected_month_name.replace(' ', '_')}.csv",
+        mime="text/csv",
+    )
 
 
 def _render_export(reconciled_data: dict, selected_month_name: str, trx_df: pd.DataFrame) -> bytes:
@@ -748,11 +1119,12 @@ def render_monthly_tracker() -> None:
          'delta': 'share of budget consumed', 'delta_tone': 'neutral', 'show_arrow': False},
     ])
 
-    tab_dash, tab_items, tab_drill, tab_bgt, tab_mom, tab_export = st.tabs([
+    tab_dash, tab_items, tab_drill, tab_bgt, tab_ratio, tab_mom, tab_export = st.tabs([
         "📊 Executive Dashboard",
         "📦 Item Totals & Quantities",
         "🔍 Transaction Drilldown",
         "⚖️ Budget vs Actual Variance",
+        "🏨 Per-Room Ratios",
         "📈 Month-over-Month Comparison",
         "📂 Separated Excel & Export"
     ])
@@ -768,6 +1140,9 @@ def render_monthly_tracker() -> None:
 
     with tab_bgt:
         _render_budget_variance(cat_df)
+
+    with tab_ratio:
+        _render_per_room_ratios(cat_df, item_df, selected_month_name, folders)
 
     with tab_mom:
         _render_mom_comparison(folders, selected_month_name, reconciled_data)

@@ -37,6 +37,18 @@ def get_default_data_dir() -> str:
     return os.path.join(home_dir, "Documents", "Business Review")
 
 
+def month_key_from_label(label: str) -> Optional[str]:
+    """Convert a 'Month YYYY' label (e.g. 'August 2026') to a 'YYYY-MM' key."""
+    try:
+        return pd.to_datetime(str(label).strip(), format="%B %Y").strftime("%Y-%m")
+    except (ValueError, TypeError):
+        return None
+
+def sorted_month_folders(folders: Dict[str, str]) -> list[tuple[str, str, Optional[str]]]:
+    """Return (label, path, month_key) sorted chronologically by month key."""
+    items = [(label, path, month_key_from_label(label)) for label, path in folders.items()]
+    return sorted(items, key=lambda item: item[2] or "")
+
 def discover_month_folders(base_dir: str) -> Dict[str, str]:
     """Discover month folders under base_dir and return {label: path}."""
     if not base_dir or not os.path.exists(base_dir):

@@ -12,6 +12,9 @@ The application streamlines hotel financial reconciliation across two primary wo
    - Reconciles **Detail Trial Balance (DTB)**, **Income Statement (MTD/YTD)**, **Store Consumption Reports**, and **Laundry Reports** (Bonvivo, Drop N Go).
    - Automatically enriches General Ledger transactions with item details, quantities, unit prices, and store requisition voucher numbers.
    - Compares actual expenditures against departmental budget lines, identifying cost drivers and variance statuses (*On Track*, *Under Budget*, *Over Budget*, *Unbudgeted*).
+   - Normalizes spend and item usage by room sold (**Per-Room Ratios** tab) so months with different occupancy stay comparable: cost per room, budget per room, variance per room, and item quantity per 100 rooms. Room sold and occupancy are prefilled from saved daily room costs when the month label maps to a stored `YYYY-MM` key.
+   - Tracks per-room spend across months (**Per-Room Trend**), flags items whose usage per 100 rooms jumped above their trailing 3-month average (**Usage Spike Alerts**), and reports a combined **CPOR** (ledger spend + utilities + linen laundry per room).
+   - Accepts **multiple ZIP archives** at once when uploading months; each archive is extracted into its own sandboxed directory and duplicate month labels are skipped with a warning.
    - Generates and exports comprehensive, multi-tab audit-ready Excel reports.
 
 2. **Gudang Central SR Separator**

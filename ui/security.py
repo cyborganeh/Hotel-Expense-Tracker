@@ -6,6 +6,7 @@ from typing import Optional
 
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_ZIP_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB per uploaded ZIP archive
 MAX_ZIP_FILES = 1000
 MAX_ZIP_SIZE = 200 * 1024 * 1024  # 200 MB
 
