@@ -851,6 +851,12 @@ class TestDailyRoomCost:
         assert briefing["B9"].value == 1
         assert briefing["B10"].value == "Dewi"
         assert briefing["A12"].value == "ROOM COST | DETAIL HARI KEMARIN"
+        assert briefing["C13"].value == "Biaya Per Kamar (MTD)"
+        assert "SUM('Room Cost MTD'!$E$5:$E$" in briefing["C15"].value
+        assert "SUM('Room Cost MTD'!$F$5:$F$" in briefing["C16"].value
+        assert "SUM('Room Cost MTD'!$G$5:$G$" in briefing["C17"].value
+        assert "SUM('Room Cost MTD'!$C$5:$C$" in briefing["C15"].value
+        assert briefing["C18"].value == "=B14+C15+C16+C17"
         assert briefing["A21"].value == "DROP N GO LAUNDRY | HARI KEMARIN"
         assert briefing["A22"].value == "Rooms"
         assert briefing["A23"].value == "2522, 2523, 2537\n2723, 2726"

@@ -144,6 +144,14 @@ def create_morning_briefing_template(
     briefing["B8"].number_format = "#,##0"
     for row, column in ((14, "D"), (15, "E"), (16, "F"), (17, "G")):
         briefing.cell(row, 2, f'=IFERROR(INDEX(\'Room Cost MTD\'!${column}$5:${column}${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0))/INDEX(\'Room Cost MTD\'!$C$5:$C${last_room_cost_row},MATCH($B$4,\'Room Cost MTD\'!$A$5:$A${last_room_cost_row},0)),"")')
+    briefing["C13"] = "Biaya Per Kamar (MTD)"
+    briefing["C13"]._style = copy(briefing["B13"]._style)
+    mtd_room_cost_row = 4 + briefing_date.day
+    for row, column in ((14, "D"), (15, "E"), (16, "F"), (17, "G")):
+        briefing.cell(row, 3, f'=IFERROR(SUM(\'Room Cost MTD\'!${column}$5:${column}${mtd_room_cost_row})/SUM(\'Room Cost MTD\'!$C$5:$C${mtd_room_cost_row}),"")')
+        briefing.cell(row, 3).number_format = "#,##0"
+    briefing["C18"] = "=B14+C15+C16+C17"
+    briefing["C18"].number_format = "#,##0"
     for column, source_column in ((1, "B"), (2, "C"), (3, "D")):
         briefing.cell(23, column, f'=IFERROR(INDEX(\'Guest Laundry MTD\'!${source_column}$5:${source_column}${last_room_cost_row},MATCH($B$4,\'Guest Laundry MTD\'!$A$5:$A${last_room_cost_row},0)),"")')
     briefing["A22"] = "Rooms"
